@@ -26,7 +26,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -40,6 +39,10 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.launch
 import org.jellyfin.sdk.model.api.BaseItemDto
 import ru.stenfredd.movies.core.jellyfin.JellyfinSession
+import ru.stenfredd.movies.ui.components.TextInput
+import ru.stenfredd.movies.ui.components.rememberTextInputState
+import ru.stenfredd.movies.ui.theme.AppColors
+import ru.stenfredd.movies.ui.theme.AppType
 import javax.inject.Inject
 
 @HiltViewModel
@@ -53,6 +56,7 @@ fun PrototypeScreen(onOpen: (Screen) -> Unit, onLogout: () -> Unit, vm: BrowseVi
     var resume by remember { mutableStateOf(emptyList<BaseItemDto>()) }
     var results by remember { mutableStateOf(emptyList<BaseItemDto>()) }
     var query by remember { mutableStateOf("") }
+    val searchInput = rememberTextInputState()
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -84,7 +88,7 @@ fun PrototypeScreen(onOpen: (Screen) -> Unit, onLogout: () -> Unit, vm: BrowseVi
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Field("Поиск", query, KeyboardType.Text) { query = it }
+                TextInput(query, { query = it }, searchInput, Modifier.width(400.dp), placeholder = "Поиск", textStyle = AppType.BodyLarge.copy(color = AppColors.Text))
                 Button(onClick = { scope.launch { results = runCatching { vm.library.search(query) }.getOrDefault(emptyList()) } }) {
                     Text("Найти")
                 }

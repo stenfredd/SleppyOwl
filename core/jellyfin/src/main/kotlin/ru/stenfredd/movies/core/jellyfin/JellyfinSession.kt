@@ -19,13 +19,13 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import org.jellyfin.sdk.api.client.ApiClient
-import org.jellyfin.sdk.api.client.extensions.authenticateUserByName
-import org.jellyfin.sdk.api.client.extensions.authenticationApi
-import org.jellyfin.sdk.api.client.extensions.systemApi
+import org.jellyfin.sdk.api.client.HttpClientOptions
 import org.jellyfin.sdk.api.okhttp.OkHttpFactory
 import org.jellyfin.sdk.createJellyfin
+import org.jellyfin.sdk.discovery.DiscoveryService
 import org.jellyfin.sdk.model.ClientInfo
 import org.jellyfin.sdk.model.DeviceInfo
+import org.jellyfin.sdk.model.api.AuthenticationResult
 import timber.log.Timber
 import java.util.UUID
 import javax.inject.Inject
@@ -128,22 +128,29 @@ class JellyfinSession @Inject constructor(
         true
     }
 
-    suspend fun login(serverUrl: String, userName: String, password: String) {
-        val url = serverUrl.trim().trimEnd('/')
-        mutex.withLock {
-            routing.set(null, null)
-            api.update(baseUrl = url, accessToken = null)
-            val result = call { authenticationApi.authenticateUserByName(userName, password).content }
-            val token = checkNotNull(result.accessToken) { "Сервер не вернул токен" }
-            val user = checkNotNull(result.user) { "Сервер не вернул пользователя" }
-            api.update(accessToken = token)
-            val serverId = result.serverId ?: user.serverId ?: url
-            val serverName = runCatching { call { systemApi.getPublicSystemInfo().content.serverName } }.getOrNull().orEmpty()
-            val account = Account(serverId, serverName, url, user.id, user.name.orEmpty(), token, lastUsedAt = System.currentTimeMillis())
-            save(account)
-            activate(account)
-        }
+    /** Saves the account of a successful login (see [ServerLogin]) and makes it current. */
+    internal suspend fun signedIn(server: Server, result: AuthenticationResult) = mutex.withLock {
+        val token = checkNotNull(result.accessToken) { "Сервер не вернул токен" }
+        val user = checkNotNull(result.user) { "Сервер не вернул пользователя" }
+        val account = Account(
+            serverId = result.serverId ?: user.serverId ?: server.id,
+            serverName = server.name,
+            serverUrl = server.url,
+            userId = user.id,
+            userName = user.name.orEmpty(),
+            accessToken = token,
+            localUrl = server.localUrl,
+            lastUsedAt = System.currentTimeMillis(),
+        )
+        save(account)
+        activate(account)
     }
+
+    internal val discovery: DiscoveryService get() = jellyfin.discovery
+
+    /** A client for the login screens: no token, this device's identity, its own timeouts. */
+    internal fun loginClient(baseUrl: String, options: HttpClientOptions): ApiClient =
+        jellyfin.createApi(baseUrl = baseUrl, deviceInfo = api.deviceInfo, httpClientOptions = options)
 
     /** Makes a saved account current (profile switch); its token is reused, no password needed. */
     suspend fun switchTo(accountId: String) = mutex.withLock {
@@ -223,7 +230,7 @@ class JellyfinSession @Inject constructor(
     private fun deviceInfo(id: String) = DeviceInfo(id = id, name = "${Build.MANUFACTURER} ${Build.MODEL}")
 
     private companion object {
-        const val CLIENT_NAME = "Movies (prototype)"
+        const val CLIENT_NAME = "Movies"
         const val CLIENT_VERSION = "0.1.0"
         const val LOCAL_RECHECK_MS = 10 * 60_000L
     }

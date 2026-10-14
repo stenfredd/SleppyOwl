@@ -32,12 +32,12 @@ import ru.stenfredd.movies.playback.api.EngineId
 import ru.stenfredd.movies.playback.api.StreamSelection
 import ru.stenfredd.movies.ui.DetailScreen
 import ru.stenfredd.movies.ui.ItemsScreen
-import ru.stenfredd.movies.ui.LoginScreen
 import ru.stenfredd.movies.ui.PlayerScreen
 import ru.stenfredd.movies.ui.PrototypeScreen
 import ru.stenfredd.movies.ui.Screen
 import ru.stenfredd.movies.ui.TourScreen
 import ru.stenfredd.movies.ui.home.HomeScreen
+import ru.stenfredd.movies.ui.login.LoginScreen
 import ru.stenfredd.movies.ui.shell.Shell
 import ru.stenfredd.movies.ui.shell.Tab
 import ru.stenfredd.movies.ui.theme.AppColors
@@ -58,7 +58,7 @@ class MainActivity : ComponentActivity() {
                 var ready by remember { mutableStateOf(false) }
                 LaunchedEffect(Unit) {
                     val loggedIn = session.restore()
-                    stack += if (loggedIn) Screen.Root(Tab.Home) else Screen.Login
+                    stack += if (loggedIn) root(Tab.Home) else Screen.Login
                     if (loggedIn) intentTarget()?.let(stack::addAll)
                     ready = true
                 }
@@ -94,8 +94,8 @@ class MainActivity : ComponentActivity() {
             entryProvider = { screen ->
                 NavEntry(screen) {
                     when (screen) {
-                        Screen.Login -> Legacy { LoginScreen(onLoggedIn = { resetTo(Screen.Root(Tab.Home)) }) }
-                        is Screen.Root -> Root(screen.tab, onTab = { resetTo(Screen.Root(it)) }, onOpen = ::open, onLogout = { resetTo(Screen.Login) })
+                        Screen.Login -> LoginScreen(onDone = { resetTo(root(Tab.Home)) })
+                        is Screen.Root -> Root(screen.tab, onTab = { resetTo(root(it)) }, onOpen = ::open, onLogout = { resetTo(Screen.Login) })
                         Screen.Prototype -> Legacy { PrototypeScreen(onOpen = ::open, onLogout = { resetTo(Screen.Login) }) }
                         is Screen.Items -> Legacy { ItemsScreen(screen, onOpen = ::open) }
                         is Screen.Detail -> Legacy { DetailScreen(screen, onOpen = ::open) }
@@ -107,15 +107,17 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    private fun root(tab: Tab) = Screen.Root(tab, session.session.value?.accountId.orEmpty())
+
     @Composable
     private fun Root(tab: Tab, onTab: (Tab) -> Unit, onOpen: (Screen) -> Unit, onLogout: () -> Unit) {
         val user by session.session.collectAsStateWithLifecycle()
         Shell(
             current = tab,
             userName = user?.userName.orEmpty(),
+            userSeed = user?.userId?.toString().orEmpty(),
             onTab = onTab,
-            // Profile switching comes with the new login screens (stage 3); until then the prototype has "Выйти".
-            onProfile = { onOpen(Screen.Prototype) },
+            onProfile = { onOpen(Screen.Login) },
         ) {
             when (tab) {
                 Tab.Home -> HomeScreen(onOpen = onOpen)

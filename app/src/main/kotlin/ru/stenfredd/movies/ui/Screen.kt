@@ -5,10 +5,14 @@ import ru.stenfredd.movies.playback.api.StreamSelection
 import java.util.UUID
 
 sealed interface Screen {
+    /** Login flow; also "сменить профиль" from the menu (then Back returns to the app). */
     data object Login : Screen
 
-    /** Root screens with the side rail. */
-    data class Root(val tab: ru.stenfredd.movies.ui.shell.Tab) : Screen
+    /**
+     * Root screens with the side rail. [account] keeps each account's screens (and their view models) apart:
+     * after a profile switch the stack is rebuilt, and an equal entry would be kept with the old account's state.
+     */
+    data class Root(val tab: ru.stenfredd.movies.ui.shell.Tab, val account: String) : Screen
 
     /** Old prototype home (libraries, text search, logout, debug tour) while the real screens are being built. */
     data object Prototype : Screen

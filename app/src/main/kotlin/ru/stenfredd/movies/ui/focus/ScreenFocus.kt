@@ -27,6 +27,11 @@ class ScreenFocus(initialKey: String?) {
     var lastKey: String? by mutableStateOf(initialKey)
         internal set
     internal val requester = FocusRequester()
+
+    /** Focuses the element with [lastKey] (after it has been composed with that key). */
+    fun requestFocus() {
+        runCatching { requester.requestFocus() }
+    }
 }
 
 private val ScreenFocusSaver = Saver<ScreenFocus, String>(

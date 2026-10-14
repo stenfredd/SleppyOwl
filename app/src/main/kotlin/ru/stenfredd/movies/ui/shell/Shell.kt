@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
@@ -49,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import kotlinx.coroutines.delay
 import ru.stenfredd.movies.ui.components.AppIcon
+import ru.stenfredd.movies.ui.components.Avatar
 import ru.stenfredd.movies.ui.components.Icon
 import ru.stenfredd.movies.ui.theme.AppColors
 import ru.stenfredd.movies.ui.theme.AppDimens
@@ -73,6 +73,8 @@ enum class Tab(val label: String, val icon: AppIcon) {
 fun Shell(
     current: Tab,
     userName: String,
+    /** Avatar colour seed (user id), see [Avatar]. */
+    userSeed: String,
     onTab: (Tab) -> Unit,
     onProfile: () -> Unit,
     content: @Composable () -> Unit,
@@ -86,6 +88,7 @@ fun Shell(
         Rail(
             current = current,
             userName = userName,
+            userSeed = userSeed,
             entry = railEntry,
             onFocusChange = { railFocused = it },
             onTab = onTab,
@@ -104,6 +107,7 @@ fun Shell(
 private fun Rail(
     current: Tab,
     userName: String,
+    userSeed: String,
     entry: FocusRequester,
     onFocusChange: (Boolean) -> Unit,
     onTab: (Tab) -> Unit,
@@ -152,7 +156,7 @@ private fun Rail(
             )
         }
         Spacer(Modifier.weight(1f))
-        ProfileItem(userName, progress, onProfile)
+        ProfileItem(userName, userSeed, progress, onProfile)
     }
 }
 
@@ -232,7 +236,7 @@ private fun RailItem(tab: Tab, selected: Boolean, progress: State<Float>, onClic
 }
 
 @Composable
-private fun ProfileItem(userName: String, progress: State<Float>, onClick: () -> Unit) {
+private fun ProfileItem(userName: String, userSeed: String, progress: State<Float>, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     Row(
         Modifier
@@ -245,9 +249,7 @@ private fun ProfileItem(userName: String, progress: State<Float>, onClick: () ->
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(9.dp),
     ) {
-        Box(Modifier.size(24.dp).background(AppColors.SelectedBorder, CircleShape), contentAlignment = Alignment.Center) {
-            BasicText(userName.take(1).uppercase(), style = AppType.CardTitle.copy(fontSize = AppType.PosterTitle.fontSize))
-        }
+        Avatar(userName, userSeed, 24.dp, AppType.CardTitle.copy(fontSize = AppType.PosterTitle.fontSize))
         Column(Modifier.graphicsLayer { alpha = progress.value }) {
             BasicText(userName, style = AppType.CardTitle.copy(fontSize = AppType.Rail.fontSize), maxLines = 1, overflow = TextOverflow.Ellipsis, softWrap = false)
             BasicText("сменить профиль", style = AppType.MonoCaption.copy(fontSize = AppType.MonoBadge.fontSize), maxLines = 1, softWrap = false)

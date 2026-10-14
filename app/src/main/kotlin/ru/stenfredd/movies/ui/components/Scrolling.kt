@@ -3,7 +3,8 @@ package ru.stenfredd.movies.ui.components
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.gestures.ScrollableState
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.runtime.Composable
@@ -23,7 +24,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 /**
- * Vertical scrolling of a screen of rows, done by hand: Compose's own bring-into-view animation can't be
+ * Vertical scrolling of a screen of rows (a scrolling column or a lazy list), done by hand: Compose's own bring-into-view animation can't be
  * slowed down (custom specs are no longer supported) and jumps too fast on a TV.
  *
  * When a row ([anchoredRow]) gets focus and isn't fully visible, the screen scrolls smoothly so the row's top
@@ -31,7 +32,7 @@ import kotlinx.coroutines.launch
  * bring-into-view is switched off inside [content]; rows keep the platform horizontal behaviour, see [DefaultScrolling].
  */
 @Stable
-class AnchoredScroll internal constructor(val scroll: ScrollState, private val scope: CoroutineScope, private val anchorPx: Float) {
+class AnchoredScroll<S : ScrollableState> internal constructor(val scroll: S, private val scope: CoroutineScope, private val anchorPx: Float) {
     internal var viewport: LayoutCoordinates? = null
     private var job: Job? = null
 
@@ -40,9 +41,10 @@ class AnchoredScroll internal constructor(val scroll: ScrollState, private val s
         if (!row.isAttached) return
         val bounds = vp.localBoundingBoxOf(row, clipBounds = false)
         if (bounds.top >= 0f && bounds.bottom <= vp.size.height) return
-        val target = (scroll.value + bounds.top - anchorPx).toInt().coerceIn(0, scroll.maxValue)
+        // A relative scroll works for a plain column and a lazy list alike; either stops at its ends by itself.
+        val delta = bounds.top - anchorPx
         job?.cancel()
-        job = scope.launch { scroll.animateScrollTo(target, tween(ScrollMillis, easing = FastOutSlowInEasing)) }
+        job = scope.launch { scroll.animateScrollBy(delta, tween(ScrollMillis, easing = FastOutSlowInEasing)) }
     }
 
     private companion object {
@@ -52,7 +54,7 @@ class AnchoredScroll internal constructor(val scroll: ScrollState, private val s
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun AnchoredScrolling(scroll: ScrollState, anchor: Dp, content: @Composable (AnchoredScroll) -> Unit) {
+fun <S : ScrollableState> AnchoredScrolling(scroll: S, anchor: Dp, content: @Composable (AnchoredScroll<S>) -> Unit) {
     val default = LocalBringIntoViewSpec.current
     val scope = rememberCoroutineScope()
     val anchorPx = with(LocalDensity.current) { anchor.toPx() }
@@ -63,10 +65,10 @@ fun AnchoredScrolling(scroll: ScrollState, anchor: Dp, content: @Composable (Anc
 }
 
 /** The scroll container's viewport: put it before `verticalScroll`. */
-fun Modifier.anchorViewport(state: AnchoredScroll): Modifier = onPlaced { state.viewport = it }
+fun Modifier.anchorViewport(state: AnchoredScroll<*>): Modifier = onPlaced { state.viewport = it }
 
 /** A row of the screen: scrolled to the anchor when focus enters it. */
-fun Modifier.anchoredRow(state: AnchoredScroll): Modifier {
+fun Modifier.anchoredRow(state: AnchoredScroll<*>): Modifier {
     var coords: LayoutCoordinates? = null
     return onPlaced { coords = it }.onFocusChanged { if (it.hasFocus) coords?.let(state::bring) }
 }

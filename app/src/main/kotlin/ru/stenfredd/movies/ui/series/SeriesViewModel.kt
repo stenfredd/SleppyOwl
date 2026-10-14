@@ -36,7 +36,7 @@ import ru.stenfredd.movies.ui.details.TrackChoices
 import ru.stenfredd.movies.ui.details.TrackOption
 import ru.stenfredd.movies.ui.model.CardMapper
 import ru.stenfredd.movies.ui.player.PlayerLabels
-import ru.stenfredd.movies.ui.player.plural
+import ru.stenfredd.movies.ui.model.plural
 import timber.log.Timber
 import java.time.Instant
 import java.time.ZoneId

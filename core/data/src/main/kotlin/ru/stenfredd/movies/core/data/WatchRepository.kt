@@ -26,37 +26,38 @@ class WatchRepository @Inject constructor(
 ) {
     private val userId get() = session.requireSession().userId
 
-    /** Started movies and episodes, most recently watched first. */
-    suspend fun resume(limit: Int = 20): List<ItemSummary> = cache.get("resume:$limit", Kind.UserData) {
+    /** Started movies and episodes, most recently watched first; of one library when [parentId] is given. */
+    suspend fun resume(limit: Int = 20, parentId: UUID? = null): List<ItemSummary> = cache.get("resume:$limit:$parentId", Kind.UserData) {
         session.call {
-            libraryApi.getResumeItems(userId = userId, limit = limit, mediaTypes = listOf(MediaType.VIDEO), fields = FEATURED_FIELDS).content.items
+            libraryApi.getResumeItems(userId = userId, parentId = parentId, limit = limit, mediaTypes = listOf(MediaType.VIDEO), fields = FEATURED_FIELDS).content.items
         }.map { it.toSummary() }
     }
 
-    /** The next unwatched episode of each series in progress. */
-    suspend fun nextUp(limit: Int = 20): List<ItemSummary> = cache.get("nextup:$limit", Kind.UserData) {
+    /** The next unwatched episode of each series in progress; of one library when [parentId] is given. */
+    suspend fun nextUp(limit: Int = 20, parentId: UUID? = null): List<ItemSummary> = cache.get("nextup:$limit:$parentId", Kind.UserData) {
         session.call {
-            showApi.getNextUp(userId = userId, limit = limit, fields = FEATURED_FIELDS, enableResumable = false, enableRewatching = false).content.items
+            showApi.getNextUp(userId = userId, parentId = parentId, limit = limit, fields = FEATURED_FIELDS, enableResumable = false, enableRewatching = false).content.items
         }.map { it.toSummary() }
     }
 
     /**
      * "Continue watching": started items first (most recent first), then the next episode of each series in progress
-     * that isn't already there.
+     * that isn't already there. Of one library when [parentId] is given.
      */
-    suspend fun continueWatching(limit: Int = 20): List<ItemSummary> = coroutineScope {
-        val resume = async { resume(limit) }
-        val nextUp = async { nextUp(limit) }
+    suspend fun continueWatching(limit: Int = 20, parentId: UUID? = null): List<ItemSummary> = coroutineScope {
+        val resume = async { resume(limit, parentId) }
+        val nextUp = async { nextUp(limit, parentId) }
         val started = resume.await()
         val seriesStarted = started.mapNotNullTo(HashSet()) { it.seriesId }
         (started + nextUp.await().filter { it.seriesId !in seriesStarted && started.none { s -> s.id == it.id } }).take(limit)
     }
 
-    /** Watched movies and episodes, most recent first. */
-    suspend fun history(start: Int, limit: Int): Page<ItemSummary> = library.items(
-        ItemQuery(kinds = setOf(ItemKind.Movie, ItemKind.Episode), sort = ItemSort.DatePlayed, descending = true, playedOnly = true),
+    /** Watched movies and episodes, most recent first; of one library when [parentId] is given. */
+    suspend fun history(start: Int, limit: Int, parentId: UUID? = null): Page<ItemSummary> = library.items(
+        ItemQuery(parentId = parentId, kinds = setOf(ItemKind.Movie, ItemKind.Episode), sort = ItemSort.DatePlayed, descending = true, playedOnly = true),
         start,
         limit,
+        withTotal = false,
     )
 
     suspend fun favorites(start: Int, limit: Int, kinds: Set<ItemKind> = setOf(ItemKind.Movie, ItemKind.Series)): Page<ItemSummary> =

@@ -36,6 +36,7 @@ import ru.stenfredd.movies.ui.Screen
 import ru.stenfredd.movies.ui.TourScreen
 import ru.stenfredd.movies.ui.details.DetailsScreen
 import ru.stenfredd.movies.ui.home.HomeScreen
+import ru.stenfredd.movies.ui.library.LibraryScreen
 import ru.stenfredd.movies.ui.player.PlayerScreen
 import ru.stenfredd.movies.ui.series.SeriesScreen
 import ru.stenfredd.movies.ui.login.LoginScreen
@@ -138,9 +139,10 @@ class MainActivity : ComponentActivity() {
         ) {
             when (tab) {
                 Tab.Home -> HomeScreen(onOpen = onOpen)
-                // Until stage 7 the library tab is the old prototype: libraries, text search, debug tour, logout.
-                Tab.Library -> Legacy { PrototypeScreen(onOpen = onOpen, onLogout = onLogout) }
-                Tab.Search, Tab.Favorites -> Placeholder("${tab.label}: скоро")
+                Tab.Library -> LibraryScreen(onOpen = onOpen)
+                // Until stage 8 the search tab is the old prototype: text search, debug tour, logout.
+                Tab.Search -> Legacy { PrototypeScreen(onOpen = onOpen, onLogout = onLogout) }
+                Tab.Favorites -> Placeholder("${tab.label}: скоро")
             }
         }
     }

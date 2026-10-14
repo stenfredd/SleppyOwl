@@ -21,6 +21,7 @@ import kotlinx.serialization.json.Json
 import ru.stenfredd.movies.core.data.model.ItemQuery
 import ru.stenfredd.movies.core.data.model.ItemSummary
 import ru.stenfredd.movies.core.data.model.LibraryView
+import ru.stenfredd.movies.core.data.model.itemKinds
 import ru.stenfredd.movies.core.jellyfin.JellyfinSession
 import timber.log.Timber
 import java.io.File
@@ -115,7 +116,7 @@ class HomeRepository @Inject constructor(
         val counted = fresh.copy(
             libraries = coroutineScope {
                 fresh.libraries.map { row ->
-                    async { row.copy(total = runCatching { library.count(ItemQuery(parentId = row.library.id)) }.getOrNull() ?: row.total) }
+                    async { row.copy(total = runCatching { library.count(ItemQuery(parentId = row.library.id, kinds = row.library.itemKinds)) }.getOrNull() ?: row.total) }
                 }.awaitAll()
             },
         )

@@ -14,7 +14,8 @@ import org.junit.runner.RunWith
  * interpreted and JIT-compiled while the user scrolls (first passes over a screen used to drop frames).
  *
  * Path: cold start → home (snapshot, then fresh data) → along "Continue watching" → down through the rows, along
- * each → open a card, down through its page → back. With the instrumentation argument `seriesId` also a series page:
+ * each → open a card, down through its page → back → library tab: along the tiles, down through the rows and the grid
+ * → back up. With the instrumentation argument `seriesId` also a series page:
  * along the buttons, the season chips, the episode row, the audio/subtitle tray. The device must be logged in.
  *
  * Run: `./gradlew :app:generateReleaseBaselineProfile [-Pandroid.testInstrumentationRunnerArguments.seriesId=<id>]`
@@ -56,6 +57,28 @@ class BaselineProfileGenerator {
         press { device.pressBack() }
         Thread.sleep(1_000)
 
+        // Library tab: from the rail (Back on home focuses the rail at "Главная", the next item is "Медиатека").
+        press { device.pressBack() }
+        press { device.pressDPadDown() }
+        press { device.pressDPadCenter() }
+        check(device.wait(Until.hasObject(By.text("БИБЛИОТЕКА")), 10_000)) { "Library did not show" }
+        Thread.sleep(1_500)
+        // Each tile shows its library once focus rests on it.
+        repeat(2) {
+            press { device.pressDPadRight() }
+            Thread.sleep(1_000)
+        }
+        repeat(2) {
+            press { device.pressDPadLeft() }
+            Thread.sleep(1_000)
+        }
+        // Rows, the sort chips and the grid (its next page loads on the way).
+        repeat(LIBRARY_ROWS) {
+            press { device.pressDPadDown() }
+            press { device.pressDPadRight() }
+        }
+        repeat(LIBRARY_ROWS) { press { device.pressDPadUp() } }
+
         val seriesId = InstrumentationRegistry.getArguments().getString("seriesId") ?: return@collect
         startActivityAndWait { it.putExtra("series", seriesId) }
         Thread.sleep(2_000)
@@ -87,5 +110,6 @@ class BaselineProfileGenerator {
     private companion object {
         const val PACKAGE = "ru.stenfredd.movies"
         const val ROWS = 6
+        const val LIBRARY_ROWS = 14
     }
 }

@@ -78,6 +78,17 @@ data class LibraryView(val id: UUID, val name: String, val type: LibraryType, va
 
 enum class LibraryType { Movies, Shows, Mixed, Other }
 
+/**
+ * What a library's lists and counts ask for. One type where the library has one: the server takes ~10× longer
+ * (0.2 s instead of 0.02) to list or count "movies and series" than just movies.
+ */
+val LibraryView.itemKinds: Set<ItemKind>
+    get() = when (type) {
+        LibraryType.Movies -> setOf(ItemKind.Movie)
+        LibraryType.Shows -> setOf(ItemKind.Series)
+        else -> setOf(ItemKind.Movie, ItemKind.Series)
+    }
+
 @Serializable
 data class Person(val id: UUID, val name: String, val role: String?, val kind: PersonKind, val image: ImageRef?)
 

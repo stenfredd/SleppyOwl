@@ -63,6 +63,7 @@ fun PrototypeScreen(onOpen: (Screen) -> Unit, onLogout: () -> Unit, vm: BrowseVi
     var query by remember { mutableStateOf("") }
     val searchInput = rememberTextInputState()
     var error by remember { mutableStateOf<String?>(null) }
+    var confirmLogout by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val tourAvailable = remember { TourEntry.available(context) }
@@ -83,12 +84,17 @@ fun PrototypeScreen(onOpen: (Screen) -> Unit, onLogout: () -> Unit, vm: BrowseVi
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 views.forEach { v -> Button(onClick = { onOpen(Screen.Items(v.id, v.name.orEmpty())) }) { Text(v.name.orEmpty()) } }
                 if (tourAvailable) Button(onClick = { onOpen(Screen.Tour()) }) { Text("Режим отладки") }
+                // Focus may land here when the tab opens: the first OK only asks, the second one signs out.
                 Button(onClick = {
-                    scope.launch {
-                        vm.session.logout()
-                        onLogout()
+                    if (!confirmLogout) {
+                        confirmLogout = true
+                    } else {
+                        scope.launch {
+                            vm.session.logout()
+                            onLogout()
+                        }
                     }
-                }) { Text("Выйти") }
+                }) { Text(if (confirmLogout) "Точно выйти?" else "Выйти") }
             }
         }
         item {

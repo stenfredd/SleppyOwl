@@ -29,6 +29,7 @@ import ru.stenfredd.movies.playback.core.PlaybackSession
 import ru.stenfredd.movies.playback.core.PlaybackSessionFactory
 import ru.stenfredd.movies.ui.Screen
 import ru.stenfredd.movies.ui.components.RemoteImageSpec
+import ru.stenfredd.movies.ui.model.plural
 import ru.stenfredd.movies.ui.details.CastModel
 import ru.stenfredd.movies.ui.details.MediaLabels
 import ru.stenfredd.movies.ui.model.CardMapper
@@ -288,17 +289,6 @@ class PlayerViewModel @javax.inject.Inject constructor(
         const val RESUME_LIMIT = 0.9f
         /** Bitrate cap → resolution the server scales to at that bitrate (its own rule of thumb). */
         val QUALITY_CAPS = listOf(20_000_000 to 1080, 10_000_000 to 1080, 4_000_000 to 720, 1_500_000 to 480)
-    }
-}
-
-internal fun plural(n: Int, one: String, few: String, many: String): String {
-    val mod100 = n % 100
-    val mod10 = n % 10
-    return when {
-        mod100 in 11..14 -> many
-        mod10 == 1 -> one
-        mod10 in 2..4 -> few
-        else -> many
     }
 }
 

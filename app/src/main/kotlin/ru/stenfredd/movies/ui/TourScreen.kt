@@ -35,6 +35,8 @@ import java.util.UUID
 import kotlinx.coroutines.delay
 import org.json.JSONArray
 import ru.stenfredd.movies.playback.api.StreamSelection
+import ru.stenfredd.movies.ui.player.PlayerScreen
+import ru.stenfredd.movies.ui.player.TourInfo
 import timber.log.Timber
 
 /**

@@ -28,6 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.foundation.focusGroup
@@ -259,7 +260,7 @@ private fun ProfileItem(userName: String, userSeed: String, progress: State<Floa
 
 /** HH:mm, recomposes once a minute and only itself. */
 @Composable
-fun Clock(modifier: Modifier = Modifier) {
+fun Clock(modifier: Modifier = Modifier, style: TextStyle = AppType.Clock) {
     var now by remember { mutableStateOf(LocalTime.now()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -267,7 +268,7 @@ fun Clock(modifier: Modifier = Modifier) {
             now = LocalTime.now()
         }
     }
-    BasicText(now.format(ClockFormat), modifier, style = AppType.Clock)
+    BasicText(now.format(ClockFormat), modifier, style = style)
 }
 
 private val ClockFormat = DateTimeFormatter.ofPattern("HH:mm")

@@ -72,3 +72,21 @@ data class EngineStats(
     val droppedFrames: Int = 0,
     val extra: Map<String, String> = emptyMap(),
 )
+
+/** Look of text subtitles, chosen in the player's subtitle panel. */
+data class SubtitleStyle(
+    val size: Size = Size.M,
+    /** ARGB. */
+    val color: Int = WHITE,
+    val background: Background = Background.SHADOW,
+) {
+    enum class Size(val scale: Float) { S(0.8f), M(1f), L(1.25f), XL(1.5f) }
+
+    enum class Background { NONE, SHADOW, BOX }
+
+    companion object {
+        const val WHITE = 0xFFFFFFFF.toInt()
+        const val YELLOW = 0xFFFFE066.toInt()
+        const val LIGHT_BLUE = 0xFF9FD3FF.toInt()
+    }
+}

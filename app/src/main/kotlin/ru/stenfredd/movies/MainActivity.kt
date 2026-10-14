@@ -31,12 +31,12 @@ import ru.stenfredd.movies.core.jellyfin.JellyfinSession
 import ru.stenfredd.movies.playback.api.EngineId
 import ru.stenfredd.movies.playback.api.StreamSelection
 import ru.stenfredd.movies.ui.ItemsScreen
-import ru.stenfredd.movies.ui.PlayerScreen
 import ru.stenfredd.movies.ui.PrototypeScreen
 import ru.stenfredd.movies.ui.Screen
 import ru.stenfredd.movies.ui.TourScreen
 import ru.stenfredd.movies.ui.details.DetailsScreen
 import ru.stenfredd.movies.ui.home.HomeScreen
+import ru.stenfredd.movies.ui.player.PlayerScreen
 import ru.stenfredd.movies.ui.login.LoginScreen
 import ru.stenfredd.movies.ui.shell.Shell
 import ru.stenfredd.movies.ui.shell.Tab
@@ -75,6 +75,11 @@ class MainActivity : ComponentActivity() {
         fun back() {
             if (stack.size > 1) stack.removeAt(stack.lastIndex) else finish()
         }
+        /** "Страница фильма" from the player: back to the item's page, or open it if the player came from elsewhere. */
+        fun showDetails(id: UUID) {
+            stack.removeAt(stack.lastIndex)
+            if (stack.lastOrNull() != Screen.Detail(id)) stack.add(Screen.Detail(id))
+        }
         fun resetTo(screen: Screen) {
             stack.clear()
             stack.add(screen)
@@ -99,7 +104,7 @@ class MainActivity : ComponentActivity() {
                         Screen.Prototype -> Legacy { PrototypeScreen(onOpen = ::open, onLogout = { resetTo(Screen.Login) }) }
                         is Screen.Items -> Legacy { ItemsScreen(screen, onOpen = ::open) }
                         is Screen.Detail -> DetailsScreen(screen, onOpen = ::open)
-                        is Screen.Player -> PlayerScreen(screen, onExit = ::back)
+                        is Screen.Player -> PlayerScreen(screen, onExit = ::back, onOpenDetails = { id -> showDetails(id) })
                         is Screen.Tour -> TourScreen(screen.startIndex, onExit = ::back)
                     }
                 }

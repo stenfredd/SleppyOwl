@@ -31,6 +31,8 @@ import ru.stenfredd.movies.playback.api.EngineStats
 import ru.stenfredd.movies.playback.api.LoadRequest
 import ru.stenfredd.movies.playback.api.PlaybackEngine
 import ru.stenfredd.movies.playback.api.SubtitleDelayCapable
+import ru.stenfredd.movies.playback.api.SubtitleStyle
+import ru.stenfredd.movies.playback.api.SubtitleStyleable
 import ru.stenfredd.movies.playback.api.embeddedOrdinal
 import ru.stenfredd.movies.playback.api.stream
 import ru.stenfredd.movies.playback.api.streams
@@ -42,11 +44,26 @@ import timber.log.Timber
  * objects in [release] (leaks here were what killed libVLC in the official Android TV client).
  * All network access goes through [LoopbackProxy]: libVLC itself only sees plain HTTP on 127.0.0.1.
  */
-class VlcEngine(context: Context, httpClient: OkHttpClient, private val device: DeviceCapabilities) : PlaybackEngine, AudioDelayCapable, SubtitleDelayCapable {
+class VlcEngine(context: Context, httpClient: OkHttpClient, private val device: DeviceCapabilities) :
+    PlaybackEngine, AudioDelayCapable, SubtitleDelayCapable, SubtitleStyleable {
     override val id = VlcEngineProvider.ID
 
-    private val libVlc = LibVLC(context.applicationContext, OPTIONS)
-    private val player = MediaPlayer(libVlc)
+    private val appContext = context.applicationContext
+    private var subtitleStyle = SubtitleStyle()
+
+    // Created on first use: libVLC reads the text subtitle look only from its instance options (see [setSubtitleStyle]).
+    private val libVlcLazy = lazy {
+        LibVLC(appContext, OPTIONS + styleOptions(subtitleStyle)).also {
+            // The native library is loaded by the first LibVLC: version() only works after that.
+            _stats.update { s -> s.copy(videoDecoder = "libVLC ${LibVLC.version()}") }
+        }
+    }
+    private val libVlc by libVlcLazy
+    private val playerLazy = lazy {
+        Dialog.setCallbacks(libVlc, dialogCallbacks)
+        MediaPlayer(libVlc).apply { setEventListener(::onEvent) }
+    }
+    private val player by playerLazy
     private val proxy = LoopbackProxy(httpClient)
     private var videoLayout: VLCVideoLayout? = null
     private var media: Media? = null
@@ -56,7 +73,7 @@ class VlcEngine(context: Context, httpClient: OkHttpClient, private val device: 
     override val state = _state.asStateFlow()
     private val _events = MutableSharedFlow<EngineEvent>(extraBufferCapacity = 16, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     override val events = _events.asSharedFlow()
-    private val _stats = MutableStateFlow(EngineStats(videoDecoder = "libVLC ${LibVLC.version()}"))
+    private val _stats = MutableStateFlow(EngineStats())
     override val stats = _stats.asStateFlow()
 
     override val positionMs get() = player.time.coerceAtLeast(0)
@@ -87,11 +104,6 @@ class VlcEngine(context: Context, httpClient: OkHttpClient, private val device: 
         override fun onDisplay(dialog: Dialog.ProgressDialog) = Unit
         override fun onCanceled(dialog: Dialog?) = Unit
         override fun onProgressUpdate(dialog: Dialog.ProgressDialog) = Unit
-    }
-
-    init {
-        Dialog.setCallbacks(libVlc, dialogCallbacks)
-        player.setEventListener(::onEvent)
     }
 
     override fun attachVideo(container: FrameLayout) {
@@ -279,9 +291,20 @@ class VlcEngine(context: Context, httpClient: OkHttpClient, private val device: 
         player.setSpuDelay(delayMs * 1000)
     }
 
+    /** Only before the first [attachVideo]/[load]: later the session restarts the engine with the new style. */
+    override fun setSubtitleStyle(style: SubtitleStyle): Boolean {
+        if (playerLazy.isInitialized()) return false
+        subtitleStyle = style
+        return true
+    }
+
     override fun release() {
         if (released) return
         released = true
+        if (!playerLazy.isInitialized()) {
+            proxy.close()
+            return
+        }
         player.setEventListener(null)
         detachVideo()
         val m = media
@@ -382,6 +405,22 @@ class VlcEngine(context: Context, httpClient: OkHttpClient, private val device: 
     }
 
     private companion object {
+        /** freetype's size divisor: smaller = bigger text, 16 is libVLC's default. */
+        fun styleOptions(style: SubtitleStyle): List<String> = listOf(
+            "--freetype-rel-fontsize=" + when (style.size) {
+                SubtitleStyle.Size.S -> 20
+                SubtitleStyle.Size.M -> 16
+                SubtitleStyle.Size.L -> 13
+                SubtitleStyle.Size.XL -> 10
+            },
+            "--freetype-color=${style.color and 0xFFFFFF}",
+            "--freetype-background-opacity=${if (style.background == SubtitleStyle.Background.BOX) 184 else 0}",
+            "--freetype-background-color=0",
+            "--freetype-shadow-opacity=${if (style.background == SubtitleStyle.Background.SHADOW) 160 else 0}",
+            // libVLC's default outline keeps text readable on any picture; "Нет" means plain text, as in ExoPlayer.
+            "--freetype-outline-thickness=${if (style.background == SubtitleStyle.Background.NONE) 0 else 4}",
+        )
+
         const val SEEK_SETTLE_MS = 1500L
         const val SEEK_TOLERANCE_MS = 5000L
         const val MAX_SEEK_CORRECTIONS = 3

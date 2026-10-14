@@ -22,6 +22,9 @@ interface PlaybackEngine {
     /** False once the engine knows it can't seek in this source (e.g. a Matroska index media3 can't find). */
     val isSeekable: Boolean get() = true
 
+    /** How far the media is loaded ahead (the timeline's buffer bar), or -1 if the engine doesn't tell. */
+    val bufferedPositionMs: Long get() = -1
+
     /** Adds the engine's own video views (surface, subtitle overlay) into [container]. */
     fun attachVideo(container: FrameLayout)
     fun detachVideo()
@@ -63,6 +66,15 @@ interface VideoPathSwitchable {
  */
 interface DolbyVisionSwitchable {
     var useDolbyVisionDecoder: Boolean
+}
+
+/** Engines that draw text subtitles (SRT, VTT …) in the user's style; ASS and bitmap subtitles keep their own look. */
+interface SubtitleStyleable {
+    /** Returns false if the engine can only take the style before [PlaybackEngine.load] (the session then restarts it). */
+    fun setSubtitleStyle(style: SubtitleStyle): Boolean
+
+    /** Lifts text subtitles above the player controls while they are shown; fraction of the video height. */
+    fun setSubtitleLift(fraction: Float) {}
 }
 
 interface SubtitleDelayCapable {

@@ -22,6 +22,7 @@ import org.jellyfin.sdk.api.client.extensions.sessionApi
 import org.jellyfin.sdk.api.client.extensions.videoApi
 import org.jellyfin.sdk.model.api.BaseItemDto
 import org.jellyfin.sdk.model.api.MediaSourceInfo
+import org.jellyfin.sdk.model.api.MediaStream
 import org.jellyfin.sdk.model.api.MediaStreamType
 import org.jellyfin.sdk.model.api.PlayMethod
 import org.jellyfin.sdk.model.api.PlaybackInfoDto
@@ -43,6 +44,10 @@ import ru.stenfredd.movies.playback.api.ExternalSubtitle
 import ru.stenfredd.movies.playback.api.LoadRequest
 import ru.stenfredd.movies.playback.api.PlaybackEngine
 import ru.stenfredd.movies.playback.api.StreamSelection
+import ru.stenfredd.movies.playback.api.SubtitleStyle
+import ru.stenfredd.movies.playback.api.SubtitleStyleable
+import ru.stenfredd.movies.playback.api.stream
+import ru.stenfredd.movies.playback.api.streams
 import ru.stenfredd.movies.playback.api.Verdict
 import ru.stenfredd.movies.playback.api.VideoPathSwitchable
 import ru.stenfredd.movies.playback.api.videoStream
@@ -58,6 +63,15 @@ data class PlaybackUiState(
     val engineState: EngineState = EngineState(),
     val positionMs: Long = 0,
     val durationMs: Long = 0,
+    /** Loaded up to here, or -1 if the engine doesn't tell. */
+    val bufferedMs: Long = -1,
+    /** The item being played (an episode, a movie) and the series of an episode. */
+    val itemId: UUID? = null,
+    val seriesId: UUID? = null,
+    /** Quality cap chosen in the player, bit/s; null = original. */
+    val maxBitrate: Int? = null,
+    /** The engine was picked by the user ("Дополнительно"), not by the selector. */
+    val manualEngine: Boolean = false,
     val playMethod: PlayMethod? = null,
     val transcodeReasons: String? = null,
     val source: MediaSourceInfo? = null,
@@ -72,8 +86,9 @@ class PlaybackSessionFactory @Inject constructor(
     private val session: JellyfinSession,
     private val selector: EngineSelector,
     private val probe: DeviceCapabilitiesProbe,
+    private val prefs: PlaybackPreferences,
 ) {
-    fun create(scope: CoroutineScope) = PlaybackSession(session, selector, probe, scope)
+    fun create(scope: CoroutineScope) = PlaybackSession(session, selector, probe, prefs, scope)
 }
 
 /**
@@ -87,6 +102,7 @@ class PlaybackSession(
     private val session: JellyfinSession,
     private val selector: EngineSelector,
     private val probe: DeviceCapabilitiesProbe,
+    private val prefs: PlaybackPreferences,
     private val scope: CoroutineScope,
 ) {
     private val _state = MutableStateFlow(PlaybackUiState())
@@ -116,6 +132,9 @@ class PlaybackSession(
     /** The user picked the engine: the stall watchdog only logs instead of switching away from their choice. */
     private var manualEngine = false
     private var lastSeekAt = 0L
+    private var maxBitrate: Int? = null
+    private var subtitleStyle = SubtitleStyle()
+    private var subtitleLift = 0f
 
     private var playSessionId: String? = null
     private var playMethod: PlayMethod = PlayMethod.DIRECT_PLAY
@@ -140,12 +159,15 @@ class PlaybackSession(
                 withContext(Dispatchers.Default) { probe.capabilities }
                 item = session.call { libraryApi.getItem(itemId, user.userId).content }
                 source = item.mediaSources?.firstOrNull() ?: error("У элемента нет медиаисточников")
-                selection = streams ?: StreamSelection(source.defaultAudioStreamIndex, source.defaultSubtitleStreamIndex)
+                subtitleStyle = prefs.subtitleStyle()
+                selection = streams ?: rememberedSelection() ?: StreamSelection(source.defaultAudioStreamIndex, source.defaultSubtitleStreamIndex)
                 val startMs = startFraction?.let { ((item.runTimeTicks ?: 0) / TICKS_PER_MS * it).toLong() } ?: startPositionMs
                 ranking = selector.rank(source, selection, device)
                 _state.update {
                     it.copy(
                         title = item.name.orEmpty(),
+                        itemId = item.id,
+                        seriesId = item.seriesId,
                         source = source,
                         selection = selection,
                         ranking = ranking.map { r -> r.provider.id to r.verdict },
@@ -155,6 +177,7 @@ class PlaybackSession(
                 val first = forcedEngine?.let(selector::provider) ?: ranking.first().provider
                 val reason = if (forcedEngine != null) "выбран вручную" else ranking.first().verdict.describe()
                 manualEngine = forcedEngine != null
+                _state.update { it.copy(manualEngine = manualEngine) }
                 launchEngine(first, startMs, forceTranscode = false, reason = reason)
             }.onFailure { fail("Не удалось начать воспроизведение", it) }
         }
@@ -163,6 +186,13 @@ class PlaybackSession(
     fun togglePlayPause() {
         val e = engine ?: return
         if (e.state.value.playWhenReady) e.pause() else e.play()
+        reportProgressAsync()
+    }
+
+    fun pause() {
+        val e = engine ?: return
+        if (!e.state.value.playWhenReady) return
+        e.pause()
         reportProgressAsync()
     }
 
@@ -189,13 +219,60 @@ class PlaybackSession(
     }
 
     fun selectAudio(streamIndex: Int) {
+        if (selection.audioStreamIndex == streamIndex) return
         selection = selection.copy(audioStreamIndex = streamIndex)
         onSelectionChanged("смена аудио") { it.selectAudio(streamIndex) }
+        source.stream(streamIndex)?.let { s -> scope.launch { prefs.rememberAudio(memoryKey(), s.pick()) } }
     }
 
     fun selectSubtitle(streamIndex: Int?) {
+        if (selection.subtitleStreamIndex == streamIndex) return
         selection = selection.copy(subtitleStreamIndex = streamIndex)
         onSelectionChanged("смена субтитров") { it.selectSubtitle(streamIndex) }
+        val pick = streamIndex?.let { source.stream(it)?.pick() }
+        scope.launch { prefs.rememberSubtitle(memoryKey(), pick) }
+    }
+
+    /** Remembered per series (an episode) or per movie. */
+    private fun memoryKey(): UUID = item.seriesId ?: item.id
+
+    /** The tracks picked last time for this movie or series, found again in this file. */
+    private suspend fun rememberedSelection(): StreamSelection? {
+        val memory = prefs.tracks(memoryKey()) ?: return null
+        val audio = memory.audio?.bestOf(source.streams(MediaStreamType.AUDIO)) { it.pick() }?.index
+        val subtitle = if (memory.subtitleOff) null else memory.subtitle?.bestOf(source.streams(MediaStreamType.SUBTITLE)) { it.pick() }?.index
+        if (audio == null && subtitle == null && !memory.subtitleOff) return null
+        log("Запомненные дорожки: аудио $audio, субтитры $subtitle")
+        return StreamSelection(audio ?: source.defaultAudioStreamIndex, if (memory.subtitleOff || subtitle != null) subtitle else source.defaultSubtitleStreamIndex)
+    }
+
+    private fun MediaStream.pick() = TrackPick(language, title?.takeIf { it.isNotBlank() }, codec)
+
+    /** Quality: null = original (direct play where possible), else the server transcodes down to [bitrate]. */
+    fun setMaxBitrate(bitrate: Int?) {
+        if (bitrate == maxBitrate) return
+        maxBitrate = bitrate
+        _state.update { it.copy(maxBitrate = bitrate) }
+        val provider = engine?.id?.let(selector::provider) ?: return
+        val position = positionMs()
+        val reason = if (bitrate == null) "качество: оригинал" else "качество: до ${bitrate / 1000} кбит/с"
+        // The server decides: direct play if the file fits under the cap, else a transcode.
+        scope.launch {
+            runCatching { launchEngine(provider, position, forceTranscode = false, reason = reason) }.onFailure { fail("Не удалось сменить качество", it) }
+        }
+    }
+
+    fun setSubtitleStyle(style: SubtitleStyle) {
+        if (style == subtitleStyle) return
+        subtitleStyle = style
+        val e = engine as? SubtitleStyleable ?: return
+        // libVLC takes the look only at start: restart it, but only if text subtitles are on screen now.
+        if (!e.setSubtitleStyle(style) && selection.subtitleStreamIndex != null) restartCurrent("вид субтитров")
+    }
+
+    fun setSubtitleLift(fraction: Float) {
+        subtitleLift = fraction
+        (engine as? SubtitleStyleable)?.setSubtitleLift(fraction)
     }
 
     /**
@@ -228,6 +305,7 @@ class PlaybackSession(
             nextVideoPath = videoPath
             nextDolbyVision = dolbyVision
             manualEngine = true
+            _state.update { it.copy(manualEngine = true) }
             launchEngine(selector.provider(id), position, forceTranscode = transcode, reason = if (transcode) "транскод вручную" else "выбран вручную")
         }
     }
@@ -243,6 +321,7 @@ class PlaybackSession(
             nextDolbyVision = null
             defaultDolbyVision = true
             manualEngine = false
+            _state.update { it.copy(manualEngine = false) }
             launchEngine(first.provider, position, forceTranscode = false, reason = first.verdict.describe())
         }
     }
@@ -251,6 +330,7 @@ class PlaybackSession(
         val position = positionMs()
         val provider = engine?.id?.let(selector::provider) ?: return
         manualEngine = true
+        _state.update { it.copy(manualEngine = true) }
         scope.launch { launchEngine(provider, position, forceTranscode = true, reason = "транскод вручную") }
     }
 
@@ -293,7 +373,7 @@ class PlaybackSession(
             item.id,
             PlaybackInfoDto(
                 userId = user.userId,
-                maxStreamingBitrate = MAX_BITRATE,
+                maxStreamingBitrate = maxBitrate ?: MAX_BITRATE,
                 startTimeTicks = startMs * TICKS_PER_MS,
                 audioStreamIndex = selection.audioStreamIndex,
                 subtitleStreamIndex = selection.subtitleStreamIndex,
@@ -346,6 +426,10 @@ class PlaybackSession(
         nextVideoPath?.let { (newEngine as? VideoPathSwitchable)?.setVideoPathMode(it) }
         nextVideoPath = null
         nextDolbyVision?.let { (newEngine as? DolbyVisionSwitchable)?.useDolbyVisionDecoder = it }
+        (newEngine as? SubtitleStyleable)?.let {
+            it.setSubtitleStyle(subtitleStyle)
+            it.setSubtitleLift(subtitleLift)
+        }
         nextDolbyVision = null
         defaultDolbyVision = false
         engine = newEngine
@@ -476,7 +560,7 @@ class PlaybackSession(
         var sinceReport = 0L
         while (scope.isActive && gen == generation) {
             val e = engine ?: return
-            _state.update { it.copy(positionMs = positionMs(), durationMs = e.durationMs) }
+            _state.update { it.copy(positionMs = positionMs(), durationMs = e.durationMs, bufferedMs = e.bufferedPositionMs) }
             delay(TICK_MS)
             sinceReport += TICK_MS
             if (sinceReport >= PROGRESS_INTERVAL_MS) {

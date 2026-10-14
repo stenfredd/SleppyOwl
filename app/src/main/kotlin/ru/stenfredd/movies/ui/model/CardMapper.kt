@@ -43,7 +43,7 @@ class CardMapper @Inject constructor(
             image = image(if (episode) item.seriesPrimary ?: item.primary else item.primary, AppDimens.POSTER_W.toFloat(), AppDimens.POSTER_H.toFloat()),
             badge = item.formatBadge(),
             progress = item.user.progress,
-            isNew = item.isNew(),
+            isNew = isNew(item),
             watched = item.user.played,
         )
     }
@@ -80,7 +80,7 @@ class CardMapper @Inject constructor(
         else -> Screen.Detail(item.id)
     }
 
-    private fun image(ref: ImageRef?, wDp: Float, hDp: Float): RemoteImageSpec? =
+    fun image(ref: ImageRef?, wDp: Float, hDp: Float): RemoteImageSpec? =
         ref?.let { RemoteImageSpec(images.url(it, px(wDp), px(hDp)), it.blurHash) }
 
     /** Episode still, else the backdrop or thumb of the item or its series. */
@@ -95,7 +95,8 @@ class CardMapper @Inject constructor(
     private fun ItemSummary.episodeLabel(): String? =
         if (kind == ItemKind.Episode && seasonNumber != null && episodeNumber != null) "S$seasonNumber · E$episodeNumber · $name" else null
 
-    private fun ItemSummary.isNew(): Boolean = dateAddedAt?.let { System.currentTimeMillis() - it < NEW_MS } == true
+    /** "Новинка": added within the last 14 days. */
+    fun isNew(item: ItemSummary): Boolean = item.dateAddedAt?.let { System.currentTimeMillis() - it < NEW_MS } == true
 
     private fun ItemSummary.formatBadge(): String? {
         val w = videoWidth ?: return null

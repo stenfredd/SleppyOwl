@@ -23,8 +23,11 @@ import ru.stenfredd.movies.core.data.SessionCache
 import ru.stenfredd.movies.core.data.WatchRepository
 import ru.stenfredd.movies.core.data.model.ItemDetails
 import ru.stenfredd.movies.core.data.model.ItemKind
+import ru.stenfredd.movies.core.data.model.MediaInfo
 import ru.stenfredd.movies.core.data.model.PersonKind
 import ru.stenfredd.movies.playback.api.StreamSelection
+import ru.stenfredd.movies.playback.core.PlaybackPreferences
+import ru.stenfredd.movies.playback.core.TrackPick
 import ru.stenfredd.movies.ui.Screen
 import ru.stenfredd.movies.ui.components.PosterModel
 import ru.stenfredd.movies.ui.components.RemoteImageSpec
@@ -90,6 +93,7 @@ class DetailsViewModel @AssistedInject constructor(
     private val watch: WatchRepository,
     private val images: ImageUrls,
     private val cards: CardMapper,
+    private val prefs: PlaybackPreferences,
     cache: SessionCache,
 ) : ViewModel() {
     @AssistedFactory
@@ -103,6 +107,9 @@ class DetailsViewModel @AssistedInject constructor(
     /** The user picked tracks on this page: keep the choice over reloads. */
     private var tracksChosen = false
     private var similarTargets: Map<String, Screen> = emptyMap()
+    /** Tracks are remembered per series (an episode) or per movie, see [PlaybackPreferences]. */
+    private var memoryKey: UUID = itemId
+    private var media: MediaInfo? = null
 
     init {
         viewModelScope.launch { load() }
@@ -115,11 +122,15 @@ class DetailsViewModel @AssistedInject constructor(
     fun selectAudio(index: Int?) {
         tracksChosen = true
         _state.update { it.copy(audio = index) }
+        val track = media?.audio?.firstOrNull { it.index == index } ?: return
+        viewModelScope.launch { prefs.rememberAudio(memoryKey, TrackPick(track.language, track.name, track.codec)) }
     }
 
     fun selectSubtitle(index: Int?) {
         tracksChosen = true
         _state.update { it.copy(subtitle = index) }
+        val pick = media?.subtitles?.firstOrNull { it.index == index }?.let { TrackPick(it.language, it.name, it.codec) }
+        viewModelScope.launch { prefs.rememberSubtitle(memoryKey, pick) }
     }
 
     /** The player screen for this item: from the resume point unless [fromStart], with the chosen tracks. */
@@ -161,15 +172,26 @@ class DetailsViewModel @AssistedInject constructor(
                 val similar = async { runCatching { library.similar(itemId) }.getOrDefault(emptyList()) }
                 val details = library.details(itemId)
                 val model = withContext(Dispatchers.Default) { details.toModel() }
+                val media = details.media
+                this@DetailsViewModel.media = media
+                memoryKey = details.summary.seriesId ?: itemId
+                val remembered = media?.let { remembered(it) }
                 _state.update { s ->
-                    val media = details.media
                     val keep = tracksChosen && s.item != null
                     s.copy(
                         loading = false,
                         error = null,
                         item = model,
-                        audio = if (keep) s.audio else media?.defaultAudioIndex ?: media?.audio?.firstOrNull()?.index,
-                        subtitle = if (keep) s.subtitle else media?.defaultSubtitleIndex,
+                        audio = when {
+                            keep -> s.audio
+                            remembered?.first != null -> remembered.first
+                            else -> media?.defaultAudioIndex ?: media?.audio?.firstOrNull()?.index
+                        },
+                        subtitle = when {
+                            keep -> s.subtitle
+                            remembered != null -> remembered.second
+                            else -> media?.defaultSubtitleIndex
+                        },
                     )
                 }
                 // Similar items only make sense for movies; an episode would get random other series.
@@ -187,6 +209,21 @@ class DetailsViewModel @AssistedInject constructor(
             // Keep what is shown when a reload fails.
             _state.update { if (it.item == null) it.copy(loading = false, error = e.message ?: e.toString()) else it }
         }
+    }
+
+    /**
+     * The tracks picked last time for this movie or series, found in this file: (audio, subtitle), or null if nothing
+     * is remembered. Unmatched audio stays null (the file's default is used); a remembered subtitle that this file
+     * doesn't have falls back to the default too.
+     */
+    private suspend fun remembered(media: MediaInfo): Pair<Int?, Int?>? {
+        val memory = prefs.tracks(memoryKey) ?: return null
+        val audio = memory.audio?.bestOf(media.audio) { TrackPick(it.language, it.name, it.codec) }?.index
+        val subtitle = when {
+            memory.subtitleOff -> null
+            else -> memory.subtitle?.bestOf(media.subtitles) { TrackPick(it.language, it.name, it.codec) }?.index ?: media.defaultSubtitleIndex
+        }
+        return audio to subtitle
     }
 
     private fun ItemDetails.toModel(): DetailsModel {

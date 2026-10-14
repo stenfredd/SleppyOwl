@@ -36,6 +36,11 @@ data class FocusStyle(
     val ring: Dp = 1.5.dp,
     val ringColor: Color = AppColors.Accent,
     val glows: List<Glow> = CardGlows,
+    /**
+     * False: focus shows at once. Over video (the player) every frame redraws the controls' shades too, so an
+     * animated focus change costs ~8 expensive frames instead of one.
+     */
+    val animate: Boolean = true,
 ) {
     @Immutable
     data class Glow(val blur: Dp, val spread: Dp, val color: Color)
@@ -83,7 +88,8 @@ private class FocusCardNode(var style: FocusStyle) : Modifier.Node(), FocusEvent
         focused = focusState.hasFocus
         if (!isAttached) return
         invalidatePlacement()
-        coroutineScope.launch { progress.animateTo(if (focused) 1f else 0f, tween(if (focused) 180 else 140)) }
+        val target = if (focused) 1f else 0f
+        coroutineScope.launch { if (style.animate) progress.animateTo(target, tween(if (focused) 180 else 140)) else progress.snapTo(target) }
     }
 
     override fun MeasureScope.measure(measurable: Measurable, constraints: Constraints): MeasureResult {

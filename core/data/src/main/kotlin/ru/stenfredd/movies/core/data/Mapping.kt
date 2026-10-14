@@ -134,7 +134,8 @@ internal fun BaseItemDto.toPerson() = Person(
     image = imageTags?.get(ImageType.PRIMARY)?.let { image(id, ImageKind.Primary, it) },
 )
 
-private fun MediaSourceInfo.toMediaInfo(): MediaInfo {
+/** The file as the app models it; the player also maps the source its session got from PlaybackInfo. */
+fun MediaSourceInfo.toMediaInfo(): MediaInfo {
     val streams = mediaStreams.orEmpty()
     return MediaInfo(
         sourceId = id.orEmpty(),

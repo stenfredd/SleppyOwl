@@ -101,7 +101,7 @@ internal object MediaLabels {
         VideoRange.SDR, null -> null
     }
 
-    private fun videoCodec(codec: String?): String? = when (codec?.lowercase()) {
+    fun videoCodec(codec: String?): String? = when (codec?.lowercase()) {
         null -> null
         "hevc", "h265" -> "HEVC"
         "h264", "avc" -> "H.264"

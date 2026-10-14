@@ -4,6 +4,7 @@ package ru.stenfredd.movies.playback.exo
 
 import android.content.Context
 import android.content.res.Configuration
+import android.graphics.Color
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -37,6 +38,7 @@ import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.SubtitleView
 import io.github.peerless2012.ass.media.AssHandler
 import io.github.peerless2012.ass.media.AssHandlerConfig
@@ -65,12 +67,14 @@ import ru.stenfredd.movies.playback.api.EngineState
 import ru.stenfredd.movies.playback.api.EngineStats
 import ru.stenfredd.movies.playback.api.LoadRequest
 import ru.stenfredd.movies.playback.api.PlaybackEngine
+import ru.stenfredd.movies.playback.api.SubtitleStyle
+import ru.stenfredd.movies.playback.api.SubtitleStyleable
 import ru.stenfredd.movies.playback.api.VideoPathSwitchable
 import ru.stenfredd.movies.playback.api.embeddedOrdinal
 import ru.stenfredd.movies.playback.api.videoStream
 import timber.log.Timber
 
-class ExoEngine(context: Context) : PlaybackEngine, VideoPathSwitchable, DolbyVisionSwitchable {
+class ExoEngine(context: Context) : PlaybackEngine, VideoPathSwitchable, DolbyVisionSwitchable, SubtitleStyleable {
     override val id = ExoEngineProvider.ID
 
     /** See [gpuPathFor]: only TVs known to over-process SDR on the video plane. */
@@ -145,9 +149,10 @@ class ExoEngine(context: Context) : PlaybackEngine, VideoPathSwitchable, DolbyVi
         resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
         addView(surfaceView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
     }
-    private val subtitleView = SubtitleView(context).apply {
-        setUserDefaultStyle()
-        setUserDefaultTextSize()
+    private val subtitleView = SubtitleView(context)
+
+    init {
+        setSubtitleStyle(SubtitleStyle())
     }
 
     private var request: LoadRequest? = null
@@ -371,6 +376,28 @@ class ExoEngine(context: Context) : PlaybackEngine, VideoPathSwitchable, DolbyVi
 
     override val isSeekable get() = player.currentTimeline.isEmpty || player.isCurrentMediaItemSeekable
 
+    override val bufferedPositionMs get() = player.bufferedPosition
+
+    override fun setSubtitleStyle(style: SubtitleStyle): Boolean {
+        val box = style.background == SubtitleStyle.Background.BOX
+        subtitleView.setStyle(
+            CaptionStyleCompat(
+                style.color,
+                if (box) BOX_COLOR else Color.TRANSPARENT,
+                Color.TRANSPARENT,
+                if (style.background == SubtitleStyle.Background.SHADOW) CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW else CaptionStyleCompat.EDGE_TYPE_NONE,
+                Color.BLACK,
+                null,
+            ),
+        )
+        subtitleView.setFractionalTextSize(SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * style.size.scale)
+        return true
+    }
+
+    override fun setSubtitleLift(fraction: Float) {
+        subtitleView.setBottomPaddingFraction(SubtitleView.DEFAULT_BOTTOM_PADDING_FRACTION + fraction)
+    }
+
     override fun play() = player.play()
     override fun pause() = player.pause()
     override fun seekTo(positionMs: Long) {
@@ -491,6 +518,8 @@ class ExoEngine(context: Context) : PlaybackEngine, VideoPathSwitchable, DolbyVi
 
     companion object {
         private const val EXTERNAL_PREFIX = "ext:"
+        /** "Плашка" behind the text: black, ~72 % opaque as in the mockup. */
+        private const val BOX_COLOR = 0xB8000000.toInt()
         private const val MIN_BUFFER_MB = 32
         private const val FRAME_RATE_SAMPLE_MS = 2000L
         /** Compose UI surface on the TV; the GPU path is shown at this rate. */

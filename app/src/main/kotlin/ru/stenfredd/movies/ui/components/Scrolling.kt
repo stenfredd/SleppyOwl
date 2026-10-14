@@ -86,3 +86,27 @@ fun DefaultScrolling(content: @Composable () -> Unit) {
     val default = LocalDefaultBringIntoViewSpec.current
     if (default == null) content() else CompositionLocalProvider(LocalBringIntoViewSpec provides default, content = content)
 }
+
+/**
+ * Scrolls only as far as needed to show the focused element whole, plus [margin] (room for its focus glow):
+ * for short side lists where the TV default (keep focus at ~30 % of the height) would scroll on the first focus.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun MinimalScrolling(margin: Dp, content: @Composable () -> Unit) {
+    val marginPx = with(LocalDensity.current) { margin.toPx() }
+    val spec = remember(marginPx) {
+        object : BringIntoViewSpec {
+            override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+                val start = offset - marginPx
+                val end = offset + size + marginPx
+                return when {
+                    start < 0f -> start
+                    end > containerSize -> (end - containerSize).coerceAtMost(start)
+                    else -> 0f
+                }
+            }
+        }
+    }
+    CompositionLocalProvider(LocalBringIntoViewSpec provides spec, content = content)
+}

@@ -48,7 +48,7 @@ class BrowseViewModel @Inject constructor(val library: Library, val session: Jel
 private fun BaseItemDto.target(): Screen = if (isPlayable) Screen.Detail(id) else Screen.Items(id, name.orEmpty())
 
 @Composable
-fun HomeScreen(onOpen: (Screen) -> Unit, onLogout: () -> Unit, vm: BrowseViewModel = hiltViewModel()) {
+fun PrototypeScreen(onOpen: (Screen) -> Unit, onLogout: () -> Unit, vm: BrowseViewModel = hiltViewModel()) {
     var views by remember { mutableStateOf(emptyList<BaseItemDto>()) }
     var resume by remember { mutableStateOf(emptyList<BaseItemDto>()) }
     var results by remember { mutableStateOf(emptyList<BaseItemDto>()) }

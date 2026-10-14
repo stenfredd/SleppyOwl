@@ -29,3 +29,15 @@ for s in json.load(sys.stdin):
 aout() { $A shell dumpsys media.audio_flinger | grep -E "^Output thread|Total writes|Tracks of which"; }
 # Журнал локального прокси VLC (диапазоны, кэш, сколько скачано с сервера)
 vproxy() { $A logcat -d | grep "VLC proxy" | sed -E 's/^[0-9-]+ ([0-9:.]+).*VLC proxy/\1/' | cut -c1-170; }
+# Замер плавности интерфейса (только на release-сборке!): ui_bench [right|down] [N]
+# Листает ряд (или экран) вперёд и назад N раз и печатает перцентили кадра и GPU, затем разбивку по фазам.
+ui_bench() {
+  local dir=${1:-right} n=${2:-8} back P=ru.stenfredd.movies
+  [ "$dir" = right ] && back=left || back=up
+  $A shell dumpsys gfxinfo $P reset >/dev/null
+  for i in $(seq 1 $n); do $A shell input keyevent DPAD_${dir^^}; sleep 0.35; done
+  for i in $(seq 1 $n); do $A shell input keyevent DPAD_${back^^}; sleep 0.35; done
+  $A shell dumpsys gfxinfo $P | grep -E 'Janky frames:|50th percentile|90th percentile|99th percentile|50th gpu|90th gpu'
+  $A shell dumpsys gfxinfo $P framestats | python3 tools/tv/framestats.py
+}
+install_release() { ./gradlew :app:assembleRelease -q && $A install -r app/build/outputs/apk/release/app-release.apk; }

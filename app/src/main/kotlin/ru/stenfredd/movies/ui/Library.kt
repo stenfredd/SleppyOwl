@@ -38,6 +38,28 @@ class Library @Inject constructor(private val session: JellyfinSession) {
         ).content.items
     }
 
+    suspend fun latest(parentId: UUID? = null, limit: Int = 20): List<BaseItemDto> = session.call {
+        libraryApi.getLatestMedia(userId = userId, parentId = parentId, limit = limit, groupItems = true).content
+    }
+
+    /** Newest movies and series of a library, with the total count. */
+    suspend fun libraryItems(parentId: UUID, limit: Int = 20): Pair<List<BaseItemDto>, Int> = session.call {
+        val r = libraryApi.getItems(
+            userId = userId,
+            parentId = parentId,
+            recursive = true,
+            includeItemTypes = listOf(BaseItemKind.MOVIE, BaseItemKind.SERIES),
+            sortBy = listOf(ItemSortBy.DATE_CREATED),
+            sortOrder = listOf(org.jellyfin.sdk.model.api.SortOrder.DESCENDING),
+            limit = limit,
+        ).content
+        r.items to r.totalRecordCount
+    }
+
+    /** Image of exactly the displayed size (px), so the TV only decodes. */
+    fun imageUrl(id: UUID, type: ImageType, tag: String, widthPx: Int, heightPx: Int): String =
+        api.imageApi.getItemImageUrl(id, type, fillWidth = widthPx, fillHeight = heightPx, quality = 90, tag = tag)
+
     suspend fun item(id: UUID): BaseItemDto = session.call { libraryApi.getItem(id, userId).content }
 
     fun posterUrl(item: BaseItemDto): String? {

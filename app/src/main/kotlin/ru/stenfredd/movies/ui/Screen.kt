@@ -6,7 +6,12 @@ import java.util.UUID
 
 sealed interface Screen {
     data object Login : Screen
-    data object Home : Screen
+
+    /** Root screens with the side rail. */
+    data class Root(val tab: ru.stenfredd.movies.ui.shell.Tab) : Screen
+
+    /** Old prototype home (libraries, text search, logout, debug tour) while the real screens are being built. */
+    data object Prototype : Screen
     data class Items(val parentId: UUID, val title: String) : Screen
     data class Detail(val itemId: UUID) : Screen
     data class Player(

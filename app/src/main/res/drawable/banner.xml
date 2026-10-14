@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Нейтральный баннер Android TV (320×180), пока нет названия и логотипа: фиолетовый круг с «play». -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="320dp"
     android:height="180dp"
     android:viewportWidth="320"
     android:viewportHeight="180">
-    <path android:fillColor="#1B1F2A" android:pathData="M0,0h320v180h-320z" />
-    <path android:fillColor="#E8B04B" android:pathData="M130,55 L130,125 L195,90 Z" />
+    <path android:fillColor="#0A0B10" android:pathData="M0,0h320v180h-320z" />
+    <path android:fillColor="#408F6BFF" android:pathData="M160,90m-62,0a62,62 0,1 1,124 0a62,62 0,1 1,-124 0" />
+    <path android:fillColor="#8F6BFF" android:pathData="M160,90m-40,0a40,40 0,1 1,80 0a40,40 0,1 1,-80 0" />
+    <path android:fillColor="#FFFFFF" android:pathData="M148,68 L148,112 L184,90 Z" />
 </vector>

@@ -2,32 +2,47 @@ package ru.stenfredd.movies
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.tv.material3.MaterialTheme
+import androidx.compose.ui.graphics.Color
 import androidx.tv.material3.Surface
-import androidx.tv.material3.Text
-import androidx.tv.material3.darkColorScheme
+import androidx.tv.material3.SurfaceDefaults
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
+import androidx.navigation3.runtime.NavEntry
+import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
+import androidx.navigation3.ui.NavDisplay
 import dagger.hilt.android.AndroidEntryPoint
 import ru.stenfredd.movies.core.jellyfin.JellyfinSession
+import ru.stenfredd.movies.playback.api.EngineId
+import ru.stenfredd.movies.playback.api.StreamSelection
 import ru.stenfredd.movies.ui.DetailScreen
-import ru.stenfredd.movies.ui.HomeScreen
 import ru.stenfredd.movies.ui.ItemsScreen
 import ru.stenfredd.movies.ui.LoginScreen
 import ru.stenfredd.movies.ui.PlayerScreen
+import ru.stenfredd.movies.ui.PrototypeScreen
 import ru.stenfredd.movies.ui.Screen
 import ru.stenfredd.movies.ui.TourScreen
-import ru.stenfredd.movies.playback.api.EngineId
-import ru.stenfredd.movies.playback.api.StreamSelection
+import ru.stenfredd.movies.ui.home.HomeScreen
+import ru.stenfredd.movies.ui.shell.Shell
+import ru.stenfredd.movies.ui.shell.Tab
+import ru.stenfredd.movies.ui.theme.AppColors
+import ru.stenfredd.movies.ui.theme.AppTheme
+import ru.stenfredd.movies.ui.theme.AppType
 import java.util.UUID
 import javax.inject.Inject
 
@@ -38,54 +53,104 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme()) {
-                Surface(modifier = Modifier.fillMaxSize()) {
-                    val stack = remember { mutableStateListOf<Screen>() }
-                    var ready by remember { mutableStateOf(false) }
-                    LaunchedEffect(Unit) {
-                        stack += if (session.restore()) Screen.Home else Screen.Login
-                        if (stack.last() == Screen.Home) debugTarget()?.let(stack::addAll)
-                        ready = true
-                    }
-                    fun open(screen: Screen) = stack.add(screen)
-                    BackHandler(enabled = stack.size > 1) { stack.removeAt(stack.lastIndex) }
-
-                    if (!ready) {
-                        Box(Modifier.fillMaxSize()) { Text("Загрузка…") }
-                        return@Surface
-                    }
-                    when (val screen = stack.last()) {
-                        Screen.Login -> LoginScreen(onLoggedIn = {
-                            stack.clear()
-                            stack += Screen.Home
-                        })
-                        Screen.Home -> HomeScreen(onOpen = ::open, onLogout = {
-                            stack.clear()
-                            stack += Screen.Login
-                        })
-                        is Screen.Items -> ItemsScreen(screen, onOpen = ::open)
-                        is Screen.Detail -> DetailScreen(screen, onOpen = ::open)
-                        is Screen.Player -> PlayerScreen(screen, onExit = { stack.removeAt(stack.lastIndex) })
-                        is Screen.Tour -> TourScreen(screen.startIndex, onExit = { stack.removeAt(stack.lastIndex) })
-                    }
+            AppTheme {
+                val stack = remember { mutableStateListOf<Screen>() }
+                var ready by remember { mutableStateOf(false) }
+                LaunchedEffect(Unit) {
+                    val loggedIn = session.restore()
+                    stack += if (loggedIn) Screen.Root(Tab.Home) else Screen.Login
+                    if (loggedIn) intentTarget()?.let(stack::addAll)
+                    ready = true
                 }
+                if (ready) Navigation(stack)
             }
         }
     }
 
+    @Composable
+    private fun Navigation(stack: MutableList<Screen>) {
+        fun open(screen: Screen) {
+            stack.add(screen)
+        }
+        fun back() {
+            if (stack.size > 1) stack.removeAt(stack.lastIndex) else finish()
+        }
+        fun resetTo(screen: Screen) {
+            stack.clear()
+            stack.add(screen)
+        }
+
+        NavDisplay(
+            backStack = stack,
+            onBack = { back() },
+            entryDecorators = listOf(
+                rememberSaveableStateHolderNavEntryDecorator(),
+                rememberViewModelStoreNavEntryDecorator(),
+            ),
+            // No screen transitions: two screens composed at once is expensive on weak TVs.
+            transitionSpec = { EnterTransition.None togetherWith ExitTransition.None },
+            popTransitionSpec = { EnterTransition.None togetherWith ExitTransition.None },
+            predictivePopTransitionSpec = { EnterTransition.None togetherWith ExitTransition.None },
+            entryProvider = { screen ->
+                NavEntry(screen) {
+                    when (screen) {
+                        Screen.Login -> Legacy { LoginScreen(onLoggedIn = { resetTo(Screen.Root(Tab.Home)) }) }
+                        is Screen.Root -> Root(screen.tab, onTab = { resetTo(Screen.Root(it)) }, onOpen = ::open, onLogout = { resetTo(Screen.Login) })
+                        Screen.Prototype -> Legacy { PrototypeScreen(onOpen = ::open, onLogout = { resetTo(Screen.Login) }) }
+                        is Screen.Items -> Legacy { ItemsScreen(screen, onOpen = ::open) }
+                        is Screen.Detail -> Legacy { DetailScreen(screen, onOpen = ::open) }
+                        is Screen.Player -> PlayerScreen(screen, onExit = ::back)
+                        is Screen.Tour -> TourScreen(screen.startIndex, onExit = ::back)
+                    }
+                }
+            },
+        )
+    }
+
+    @Composable
+    private fun Root(tab: Tab, onTab: (Tab) -> Unit, onOpen: (Screen) -> Unit, onLogout: () -> Unit) {
+        val user by session.session.collectAsStateWithLifecycle()
+        Shell(
+            current = tab,
+            userName = user?.userName.orEmpty(),
+            onTab = onTab,
+            // Profile switching comes with the new login screens (stage 3); until then the prototype has "Выйти".
+            onProfile = { onOpen(Screen.Prototype) },
+        ) {
+            when (tab) {
+                Tab.Home -> HomeScreen(onOpen = onOpen)
+                // Until stage 7 the library tab is the old prototype: libraries, text search, debug tour, logout.
+                Tab.Library -> Legacy { PrototypeScreen(onOpen = onOpen, onLogout = onLogout) }
+                Tab.Search, Tab.Favorites -> Placeholder("${tab.label}: скоро")
+            }
+        }
+    }
+
+    /** Old prototype screens use tv-material components, which take their text colour from a Surface. */
+    @Composable
+    private fun Legacy(content: @Composable () -> Unit) {
+        Surface(Modifier.fillMaxSize(), colors = SurfaceDefaults.colors(containerColor = Color.Transparent, contentColor = AppColors.Text)) { content() }
+    }
+
+    @Composable
+    private fun Placeholder(text: String) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { BasicText(text, style = AppType.Body) }
+    }
+
     /**
-     * Debug-only shortcut for testing on a TV without typing:
-     * `adb shell am start -S -n ru.stenfredd.movies/.MainActivity --es item <id> [--es engine exo|vlc] [--el start <ms>]
-     * [--ei audio <index>] [--ei sub <index>]` (stream indexes as Jellyfin numbers them; with one given, the other is off),
-     * or `--ez tour true [--ei tour_file N]` for the debug tour (from file N).
+     * Opens an item from the launch intent:
+     * `adb shell am start -S -n ru.stenfredd.movies/.MainActivity --es item <id> [--ez play true] [--el start <ms>]
+     * [--ei audio <index>] [--ei sub <index>]` (stream indexes as Jellyfin numbers them; with one given, the other is off).
+     * Debug builds also take `--es engine exo|vlc` (implies play) and `--ez tour true [--ei tour_file N]` for the debug tour.
      */
-    private fun debugTarget(): List<Screen>? {
-        if (!BuildConfig.DEBUG) return null
-        if (intent.getBooleanExtra("tour", false)) return listOf(Screen.Tour(intent.getIntExtra("tour_file", 1) - 1))
+    private fun intentTarget(): List<Screen>? {
+        if (BuildConfig.DEBUG && intent.getBooleanExtra("tour", false)) return listOf(Screen.Tour(intent.getIntExtra("tour_file", 1) - 1))
         val raw = intent.getStringExtra("item") ?: return null
-        val id = UUID.fromString(if ('-' in raw) raw else raw.replace(Regex("(.{8})(.{4})(.{4})(.{4})(.{12})"), "$1-$2-$3-$4-$5"))
-        val engine = intent.getStringExtra("engine")?.let(::EngineId)
-        val play = intent.hasExtra("engine") || intent.getBooleanExtra("play", false)
+        val id = runCatching {
+            UUID.fromString(if ('-' in raw) raw else raw.replace(Regex("(.{8})(.{4})(.{4})(.{4})(.{12})"), "$1-$2-$3-$4-$5"))
+        }.getOrNull() ?: return null
+        val engine = if (BuildConfig.DEBUG) intent.getStringExtra("engine")?.let(::EngineId) else null
+        val play = engine != null || intent.getBooleanExtra("play", false)
         val streams = if (intent.hasExtra("audio") || intent.hasExtra("sub")) {
             StreamSelection(intent.getIntExtra("audio", -1).takeIf { it >= 0 }, intent.getIntExtra("sub", -1).takeIf { it >= 0 })
         } else {

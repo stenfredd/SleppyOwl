@@ -20,7 +20,12 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // Скорость интерфейса проверяем только на этой сборке: R8 + baseline profile.
+            // Пока своего ключа нет, подписываем debug-ключом, чтобы ставилась на ТВ.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
@@ -59,9 +64,13 @@ dependencies {
     implementation(libs.compose.ui.tooling.preview)
     debugImplementation(libs.compose.ui.tooling)
     implementation(libs.tv.material)
+    implementation(libs.navigation3.runtime)
+    implementation(libs.navigation3.ui)
+    implementation(libs.androidx.lifecycle.viewmodel.navigation3)
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
     implementation(libs.timber)
+    implementation(libs.androidx.profileinstaller)
 }

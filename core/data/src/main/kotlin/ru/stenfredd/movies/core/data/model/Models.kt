@@ -143,9 +143,14 @@ enum class VideoRange { SDR, HDR10, HDR10Plus, HLG, DolbyVision, Other }
 
 data class AudioTrack(
     val index: Int,
+    /** Server's display title ("Russian - Dolby TrueHD + Dolby Atmos 7.1 - Default"). */
     val title: String,
+    /** The stream's own title from the file ("MVO, HDRezka"): tells apart tracks of one language. */
+    val name: String?,
     val language: String?,
     val codec: String?,
+    /** Codec profile ("DTS-HD MA"). */
+    val profile: String?,
     val channels: Int?,
     /** Dolby Atmos (TrueHD or E-AC-3 JOC). */
     val atmos: Boolean,
@@ -155,6 +160,8 @@ data class AudioTrack(
 data class SubtitleTrack(
     val index: Int,
     val title: String,
+    /** The stream's own title from the file ("Надписи", "Full"). */
+    val name: String?,
     val language: String?,
     val codec: String?,
     val external: Boolean,

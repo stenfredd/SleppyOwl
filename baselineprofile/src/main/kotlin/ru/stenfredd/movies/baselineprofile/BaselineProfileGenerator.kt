@@ -13,7 +13,7 @@ import org.junit.runner.RunWith
  * interpreted and JIT-compiled while the user scrolls (first passes over a screen used to drop frames).
  *
  * Path: cold start → home (snapshot, then fresh data) → along "Continue watching" → down through the rows, along
- * each → open a card → back. The device must be logged in.
+ * each → open a card, down through its page → back. The device must be logged in.
  *
  * Run: `./gradlew :app:generateReleaseBaselineProfile` with the TV connected over adb. The result is written to
  * `app/src/release/generated/baselineProfiles/` and goes into the release APK.
@@ -40,8 +40,16 @@ class BaselineProfileGenerator {
         }
         repeat(ROWS) { press { device.pressDPadUp() } }
 
+        // Item page: actions, track chips, cast, similar, and back up.
         press { device.pressDPadCenter() }
         Thread.sleep(2_000)
+        repeat(3) { press { device.pressDPadRight() } }
+        repeat(3) { press { device.pressDPadLeft() } }
+        repeat(4) {
+            press { device.pressDPadDown() }
+            repeat(3) { press { device.pressDPadRight() } }
+        }
+        repeat(4) { press { device.pressDPadUp() } }
         press { device.pressBack() }
         Thread.sleep(1_000)
     }

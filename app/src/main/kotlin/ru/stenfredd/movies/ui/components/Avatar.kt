@@ -24,7 +24,7 @@ import kotlin.math.sin
  * so a user keeps the same colour everywhere.
  */
 @Composable
-fun Avatar(name: String, seed: String, size: Dp, textStyle: TextStyle, modifier: Modifier = Modifier) {
+fun Avatar(name: String, seed: String, size: Dp, textStyle: TextStyle, modifier: Modifier = Modifier, letters: String = name.trim().take(1).uppercase()) {
     val colors = remember(seed) { avatarColors(seed) }
     Box(
         modifier
@@ -35,7 +35,7 @@ fun Avatar(name: String, seed: String, size: Dp, textStyle: TextStyle, modifier:
             },
         contentAlignment = Alignment.Center,
     ) {
-        BasicText(name.trim().take(1).uppercase(), style = textStyle)
+        BasicText(letters, style = textStyle)
     }
 }
 

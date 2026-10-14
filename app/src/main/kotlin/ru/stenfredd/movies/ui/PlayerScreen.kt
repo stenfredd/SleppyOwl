@@ -357,3 +357,8 @@ private fun Menu(
         }
     }
 }
+
+fun formatTime(ms: Long): String {
+    val total = ms / 1000
+    return if (total >= 3600) "%d:%02d:%02d".format(total / 3600, total / 60 % 60, total % 60) else "%d:%02d".format(total / 60, total % 60)
+}

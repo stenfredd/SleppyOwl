@@ -144,8 +144,9 @@ private fun MediaSourceInfo.toMediaInfo(): MediaInfo {
         video = streams.firstOrNull { it.type == MediaStreamType.VIDEO }?.toVideo(),
         audio = streams.filter { it.type == MediaStreamType.AUDIO }.map { it.toAudio(defaultAudioStreamIndex) },
         subtitles = streams.filter { it.type == MediaStreamType.SUBTITLE }.map { it.toSubtitle(defaultSubtitleStreamIndex) },
-        defaultAudioIndex = defaultAudioStreamIndex,
-        defaultSubtitleIndex = defaultSubtitleStreamIndex,
+        defaultAudioIndex = defaultAudioStreamIndex?.takeIf { it >= 0 },
+        // -1 is the server's "no subtitles".
+        defaultSubtitleIndex = defaultSubtitleStreamIndex?.takeIf { it >= 0 },
     )
 }
 
@@ -171,8 +172,10 @@ private fun VideoRangeType.toRange(): VideoRange = when {
 private fun MediaStream.toAudio(defaultIndex: Int?) = AudioTrack(
     index = index,
     title = displayTitle ?: title ?: codec.orEmpty(),
+    name = title?.takeIf { it.isNotBlank() },
     language = language,
     codec = codec,
+    profile = profile,
     channels = channels,
     atmos = audioSpatialFormat == AudioSpatialFormat.DOLBY_ATMOS || profile?.contains("Atmos", ignoreCase = true) == true,
     isDefault = index == defaultIndex,
@@ -181,6 +184,7 @@ private fun MediaStream.toAudio(defaultIndex: Int?) = AudioTrack(
 private fun MediaStream.toSubtitle(defaultIndex: Int?) = SubtitleTrack(
     index = index,
     title = displayTitle ?: title ?: codec.orEmpty(),
+    name = title?.takeIf { it.isNotBlank() },
     language = language,
     codec = codec,
     external = isExternal,

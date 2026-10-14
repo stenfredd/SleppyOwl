@@ -49,8 +49,10 @@ install_release() {
 }
 # Снять baseline profile заново на ТВ (~8 мин, ТВ должен быть с выполненным входом) и положить в app/src/release.
 # Gradle может закончить с «failing tests» при успешном прогоне — тогда профиль копируется вручную.
+# PROFILE_SERIES — id сериала для прохода по странице сериала.
 gen_profile() {
-  ANDROID_SERIAL=$TV_ADB ./gradlew :app:generateReleaseBaselineProfile -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true
+  ANDROID_SERIAL=$TV_ADB ./gradlew :app:generateReleaseBaselineProfile -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true \
+    -Pandroid.testInstrumentationRunnerArguments.seriesId=${PROFILE_SERIES:-00000000000000000000000000000000}
   local src="baselineprofile/build/outputs/connected_android_test_additional_output/nonMinifiedRelease/connected"
   src=$(find "$src" -name 'BaselineProfileGenerator_generate-startup-prof.txt' | head -1)
   [ -n "$src" ] || { echo "профиль не найден"; return 1; }

@@ -85,6 +85,7 @@ internal fun PlayerDrawer(
     modifier: Modifier = Modifier,
 ) {
     val episodes = season?.takeIf { info?.isEpisode == true }
+    val page = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         withFrameNanos { }
         runCatching { initial.requestFocus() }
@@ -118,9 +119,10 @@ internal fun PlayerDrawer(
             )
             BasicText("▲ — свернуть", Modifier.padding(end = 6.dp), style = AppType.MonoCaption.copy(color = AppColors.TextFaint))
             PagePill(
-                if (episodes != null) "Страница серии" else "Страница фильма",
+                if (episodes != null) "К сериалу" else "Страница фильма",
                 onClick = onPage,
                 modifier = Modifier
+                    .focusRequester(page)
                     .then(if (episodes == null) Modifier.focusRequester(initial) else Modifier)
                     .onPreviewKeyEvent {
                         if (it.type == KeyEventType.KeyDown && it.key.nativeKeyCode == AndroidKeyEvent.KEYCODE_DPAD_UP) {
@@ -133,7 +135,17 @@ internal fun PlayerDrawer(
             )
         }
         when {
-            episodes != null -> EpisodeRow(episodes, currentId, playedFraction, initial, onEpisode)
+            // ↑ from the episodes goes to "К сериалу" (the controls above would leave the drawer open behind them).
+            episodes != null -> Box(
+                Modifier.onPreviewKeyEvent {
+                    if (it.type == KeyEventType.KeyDown && it.key.nativeKeyCode == AndroidKeyEvent.KEYCODE_DPAD_UP) {
+                        runCatching { page.requestFocus() }
+                        true
+                    } else {
+                        false
+                    }
+                },
+            ) { EpisodeRow(episodes, currentId, playedFraction, initial, onEpisode) }
             info != null -> AboutMovie(info)
         }
     }

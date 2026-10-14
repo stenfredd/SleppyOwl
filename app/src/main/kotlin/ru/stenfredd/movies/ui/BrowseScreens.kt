@@ -38,6 +38,7 @@ import coil3.compose.AsyncImage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.launch
 import org.jellyfin.sdk.model.api.BaseItemDto
+import org.jellyfin.sdk.model.api.BaseItemKind
 import ru.stenfredd.movies.core.jellyfin.JellyfinSession
 import ru.stenfredd.movies.ui.components.TextInput
 import ru.stenfredd.movies.ui.components.rememberTextInputState
@@ -48,7 +49,11 @@ import javax.inject.Inject
 @HiltViewModel
 class BrowseViewModel @Inject constructor(val library: Library, val session: JellyfinSession) : ViewModel()
 
-private fun BaseItemDto.target(): Screen = if (isPlayable) Screen.Detail(id) else Screen.Items(id, name.orEmpty())
+private fun BaseItemDto.target(): Screen = when {
+    type == BaseItemKind.SERIES -> Screen.Series(id)
+    isPlayable -> Screen.Detail(id)
+    else -> Screen.Items(id, name.orEmpty())
+}
 
 @Composable
 fun PrototypeScreen(onOpen: (Screen) -> Unit, onLogout: () -> Unit, vm: BrowseViewModel = hiltViewModel()) {

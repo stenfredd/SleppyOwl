@@ -168,7 +168,7 @@ private val TitleStyle = AppType.Display.copy(fontSize = 46.sp, lineHeight = 48.
 
 /** Backdrop, dimmed and faded at its edges ([BackdropTransformation]), at the top right of the first screen. */
 @Composable
-private fun Backdrop(url: String) {
+internal fun Backdrop(url: String) {
     val context = LocalContext.current
     val area = remember { RectF(L.PAGE_W - L.BACKDROP_W, 0f, L.PAGE_W, L.BACKDROP_H) }
     val request = remember(url) {

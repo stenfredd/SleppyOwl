@@ -74,9 +74,15 @@ class CardMapper @Inject constructor(
         )
     }
 
-    /** Where a card leads. Series and folders still open the old prototype list until their screens exist. */
+    /**
+     * Where a card leads: a movie to its page, a series, season or episode to the series page (on that episode).
+     * Collections and folders still open the old prototype list until the library screen exists.
+     */
     fun target(item: ItemSummary): Screen = when (item.kind) {
-        ItemKind.Series, ItemKind.Season, ItemKind.BoxSet, ItemKind.Folder -> Screen.Items(item.id, item.name)
+        ItemKind.Series -> Screen.Series(item.id)
+        ItemKind.Season -> item.seriesId?.let { Screen.Series(it) } ?: Screen.Items(item.id, item.name)
+        ItemKind.Episode -> item.seriesId?.let { Screen.Series(it, item.id) } ?: Screen.Detail(item.id)
+        ItemKind.BoxSet, ItemKind.Folder -> Screen.Items(item.id, item.name)
         else -> Screen.Detail(item.id)
     }
 

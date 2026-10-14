@@ -37,6 +37,7 @@ import ru.stenfredd.movies.ui.TourScreen
 import ru.stenfredd.movies.ui.details.DetailsScreen
 import ru.stenfredd.movies.ui.home.HomeScreen
 import ru.stenfredd.movies.ui.player.PlayerScreen
+import ru.stenfredd.movies.ui.series.SeriesScreen
 import ru.stenfredd.movies.ui.login.LoginScreen
 import ru.stenfredd.movies.ui.shell.Shell
 import ru.stenfredd.movies.ui.shell.Tab
@@ -80,6 +81,11 @@ class MainActivity : ComponentActivity() {
             stack.removeAt(stack.lastIndex)
             if (stack.lastOrNull() != Screen.Detail(id)) stack.add(Screen.Detail(id))
         }
+        /** "К сериалу" from the player: back to the series page, or open it if the player came from elsewhere. */
+        fun showSeries(seriesId: UUID, episodeId: UUID) {
+            stack.removeAt(stack.lastIndex)
+            if ((stack.lastOrNull() as? Screen.Series)?.seriesId != seriesId) stack.add(Screen.Series(seriesId, episodeId))
+        }
         fun resetTo(screen: Screen) {
             stack.clear()
             stack.add(screen)
@@ -104,7 +110,13 @@ class MainActivity : ComponentActivity() {
                         Screen.Prototype -> Legacy { PrototypeScreen(onOpen = ::open, onLogout = { resetTo(Screen.Login) }) }
                         is Screen.Items -> Legacy { ItemsScreen(screen, onOpen = ::open) }
                         is Screen.Detail -> DetailsScreen(screen, onOpen = ::open)
-                        is Screen.Player -> PlayerScreen(screen, onExit = ::back, onOpenDetails = { id -> showDetails(id) })
+                        is Screen.Series -> SeriesScreen(screen, onOpen = ::open)
+                        is Screen.Player -> PlayerScreen(
+                            screen,
+                            onExit = ::back,
+                            onOpenDetails = { id -> showDetails(id) },
+                            onOpenSeries = { seriesId, episodeId -> showSeries(seriesId, episodeId) },
+                        )
                         is Screen.Tour -> TourScreen(screen.startIndex, onExit = ::back)
                     }
                 }
@@ -147,15 +159,16 @@ class MainActivity : ComponentActivity() {
     /**
      * Opens an item from the launch intent:
      * `adb shell am start -S -n ru.stenfredd.movies/.MainActivity --es item <id> [--ez play true] [--el start <ms>]
-     * [--ei audio <index>] [--ei sub <index>]` (stream indexes as Jellyfin numbers them; with one given, the other is off).
+     * [--ei audio <index>] [--ei sub <index>]` (stream indexes as Jellyfin numbers them; with one given, the other is off),
+     * or a series page: `--es series <id> [--es episode <id>]`.
      * Debug builds also take `--es engine exo|vlc` (implies play) and `--ez tour true [--ei tour_file N]` for the debug tour.
      */
     private fun intentTarget(): List<Screen>? {
         if (BuildConfig.DEBUG && intent.getBooleanExtra("tour", false)) return listOf(Screen.Tour(intent.getIntExtra("tour_file", 1) - 1))
-        val raw = intent.getStringExtra("item") ?: return null
-        val id = runCatching {
-            UUID.fromString(if ('-' in raw) raw else raw.replace(Regex("(.{8})(.{4})(.{4})(.{4})(.{12})"), "$1-$2-$3-$4-$5"))
-        }.getOrNull() ?: return null
+        intent.getStringExtra("series")?.let(::parseId)?.let { series ->
+            return listOf(Screen.Series(series, intent.getStringExtra("episode")?.let(::parseId)))
+        }
+        val id = intent.getStringExtra("item")?.let(::parseId) ?: return null
         val engine = if (BuildConfig.DEBUG) intent.getStringExtra("engine")?.let(::EngineId) else null
         val play = engine != null || intent.getBooleanExtra("play", false)
         val streams = if (intent.hasExtra("audio") || intent.hasExtra("sub")) {
@@ -166,4 +179,9 @@ class MainActivity : ComponentActivity() {
         return listOf(Screen.Detail(id)) +
             if (play) listOf(Screen.Player(id, engine, intent.getLongExtra("start", 0), streams = streams)) else emptyList()
     }
+
+    /** Jellyfin ids come with or without dashes. */
+    private fun parseId(raw: String): UUID? = runCatching {
+        UUID.fromString(if ('-' in raw) raw else raw.replace(Regex("(.{8})(.{4})(.{4})(.{4})(.{12})"), "$1-$2-$3-$4-$5"))
+    }.getOrNull()
 }

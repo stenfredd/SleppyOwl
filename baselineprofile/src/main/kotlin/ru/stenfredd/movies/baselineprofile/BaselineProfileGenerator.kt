@@ -2,6 +2,7 @@ package ru.stenfredd.movies.baselineprofile
 
 import androidx.benchmark.macro.junit4.BaselineProfileRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.Until
 import org.junit.Rule
@@ -13,9 +14,11 @@ import org.junit.runner.RunWith
  * interpreted and JIT-compiled while the user scrolls (first passes over a screen used to drop frames).
  *
  * Path: cold start → home (snapshot, then fresh data) → along "Continue watching" → down through the rows, along
- * each → open a card, down through its page → back. The device must be logged in.
+ * each → open a card, down through its page → back. With the instrumentation argument `seriesId` also a series page:
+ * along the buttons, the season chips, the episode row, the audio/subtitle tray. The device must be logged in.
  *
- * Run: `./gradlew :app:generateReleaseBaselineProfile` with the TV connected over adb. The result is written to
+ * Run: `./gradlew :app:generateReleaseBaselineProfile [-Pandroid.testInstrumentationRunnerArguments.seriesId=<id>]`
+ * with the TV connected over adb (`gen_profile` in tools/tv/env.sh). The result is written to
  * `app/src/release/generated/baselineProfiles/` and goes into the release APK.
  */
 @RunWith(AndroidJUnit4::class)
@@ -50,6 +53,28 @@ class BaselineProfileGenerator {
             repeat(3) { press { device.pressDPadRight() } }
         }
         repeat(4) { press { device.pressDPadUp() } }
+        press { device.pressBack() }
+        Thread.sleep(1_000)
+
+        val seriesId = InstrumentationRegistry.getArguments().getString("seriesId") ?: return@collect
+        startActivityAndWait { it.putExtra("series", seriesId) }
+        Thread.sleep(2_000)
+        repeat(2) { press { device.pressDPadRight() } }
+        repeat(2) { press { device.pressDPadLeft() } }
+        press { device.pressDPadDown() }
+        repeat(2) { press { device.pressDPadRight() } }
+        repeat(2) { press { device.pressDPadLeft() } }
+        press { device.pressDPadDown() }
+        repeat(8) { press { device.pressDPadRight() } }
+        repeat(8) { press { device.pressDPadLeft() } }
+        press { device.pressDPadUp() }
+        press { device.pressDPadUp() }
+        // The tray: audio, subtitles, their look; no choice is made (it would change what the account remembers).
+        press { device.pressDPadRight() }
+        press { device.pressDPadCenter() }
+        repeat(2) { press { device.pressDPadRight() } }
+        repeat(2) { press { device.pressDPadDown() } }
+        press { device.pressBack() }
         press { device.pressBack() }
         Thread.sleep(1_000)
     }

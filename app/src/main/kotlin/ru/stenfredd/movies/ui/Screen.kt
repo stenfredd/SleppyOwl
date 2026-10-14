@@ -18,6 +18,9 @@ sealed interface Screen {
     data object Prototype : Screen
     data class Items(val parentId: UUID, val title: String) : Screen
     data class Detail(val itemId: UUID) : Screen
+
+    /** Series page; [episodeId] = the episode to show first (a new episode, continue watching), else the next one to watch. */
+    data class Series(val seriesId: UUID, val episodeId: UUID? = null) : Screen
     data class Player(
         val itemId: UUID,
         val engine: EngineId?,

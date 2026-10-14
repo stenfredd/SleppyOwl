@@ -81,6 +81,7 @@ fun PlayerScreen(
     screen: Screen.Player,
     onExit: () -> Unit,
     onOpenDetails: (UUID) -> Unit = {},
+    onOpenSeries: (seriesId: UUID, episodeId: UUID) -> Unit = { _, _ -> },
     tour: TourInfo? = null,
     vm: PlayerViewModel = hiltViewModel(),
 ) {
@@ -89,7 +90,7 @@ fun PlayerScreen(
     val session by vm.session.collectAsStateWithLifecycle()
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         VideoSurface(session)
-        session?.let { PlayerUi(it, vm, onExit, onOpenDetails, tour) }
+        session?.let { PlayerUi(it, vm, onExit, onOpenDetails, onOpenSeries, tour) }
     }
 }
 
@@ -123,6 +124,10 @@ private class PlayerUiState {
     var tourStep = 0
     /** Back went down while the player had focus; it acts on release. */
     var backPressed = false
+    /** "Досмотреть титры" was chosen for this item: no "next episode" card for it any more. */
+    var nextDismissedFor by mutableStateOf<UUID?>(null)
+    /** The "next episode" card has focus: arrows and OK go to its buttons. */
+    var promptFocused = false
 
     val root = FocusRequester()
     val playPause = FocusRequester()
@@ -130,6 +135,7 @@ private class PlayerUiState {
     val panelInitial = FocusRequester()
     val drawerInitial = FocusRequester()
     val errorButton = FocusRequester()
+    val nextPlay = FocusRequester()
     val debugMenuFocus = FocusRequester()
     val chips = PlayerPanel.entries.associateWith { FocusRequester() }
     var panelFrom: FocusRequester? = null
@@ -151,7 +157,14 @@ private class PlayerUiState {
 }
 
 @Composable
-private fun PlayerUi(session: PlaybackSession, vm: PlayerViewModel, onExit: () -> Unit, onOpenDetails: (UUID) -> Unit, tour: TourInfo?) {
+private fun PlayerUi(
+    session: PlaybackSession,
+    vm: PlayerViewModel,
+    onExit: () -> Unit,
+    onOpenDetails: (UUID) -> Unit,
+    onOpenSeries: (UUID, UUID) -> Unit,
+    tour: TourInfo?,
+) {
     val state by session.state.collectAsStateWithLifecycle()
     val info by vm.info.collectAsStateWithLifecycle()
     val season by vm.season.collectAsStateWithLifecycle()
@@ -162,11 +175,18 @@ private fun PlayerUi(session: PlaybackSession, vm: PlayerViewModel, onExit: () -
     val playing = state.engineState.playWhenReady
     val ended = state.engineState.phase == EngineState.Phase.ENDED
     val shownPosition = ui.scrubTarget ?: state.positionMs
+    val remainingMs = state.durationMs - state.positionMs
+    // "Следующая через N с" near the end of an episode, unless dismissed or something is open over the video.
+    val next = season?.nextEpisode?.takeIf {
+        info?.isEpisode == true && state.durationMs > 0 && remainingMs in 0..NEXT_PROMPT_MS && !ended && state.error == null &&
+            ui.nextDismissedFor != state.itemId && ui.panel == null && !ui.drawer
+    }
 
     fun hideOsd() {
         runCatching { ui.root.requestFocus() }
         ui.osd = false
         ui.drawer = false
+        if (next != null) ui.focus(ui.nextPlay)
     }
 
     fun showOsd(focus: FocusRequester) {
@@ -216,6 +236,10 @@ private fun PlayerUi(session: PlaybackSession, vm: PlayerViewModel, onExit: () -
             ui.panel != null -> closePanel()
             ui.drawer -> closeDrawer()
             ui.osd && state.error == null -> hideOsd()
+            next != null -> {
+                ui.nextDismissedFor = state.itemId
+                ui.focus(ui.root)
+            }
             else -> onExit()
         }
     }
@@ -245,7 +269,7 @@ private fun PlayerUi(session: PlaybackSession, vm: PlayerViewModel, onExit: () -
             AndroidKeyEvent.KEYCODE_MEDIA_REWIND -> scrub(-1, repeat).also { if (!ui.osd) showOsd(ui.timeline) }
             AndroidKeyEvent.KEYCODE_MEDIA_NEXT -> season?.next?.let(vm::playEpisode)
             AndroidKeyEvent.KEYCODE_MEDIA_PREVIOUS -> season?.previous?.let(vm::playEpisode)
-            else -> return onNavigationKey(code, repeat, ui, session, tour, ::scrub, ::showOsd, ::openDrawer)
+            else -> return onNavigationKey(code, repeat, ui, session, tour, ::scrub, ::showOsd, ::openDrawer, promptShown = next != null)
         }
         return true
     }
@@ -286,8 +310,18 @@ private fun PlayerUi(session: PlaybackSession, vm: PlayerViewModel, onExit: () -
     }
     LaunchedEffect(ended) {
         if (!ended) return@LaunchedEffect
-        // Stage 6 adds "Следующая серия через N"; for now the next episode simply starts.
+        // The end of an episode plays the next one (the card counted down to it, or was dismissed); else leave.
         season?.next?.let(vm::playEpisode) ?: onExit()
+    }
+    // Another episode started (⏭, media keys) with the drawer open: fold it, its focus belonged to the old list.
+    LaunchedEffect(state.itemId) {
+        if (ui.drawer) closeDrawer()
+    }
+    // The card takes focus when it appears over the bare video; with the controls shown they keep it.
+    val nextShown = next != null
+    LaunchedEffect(nextShown) {
+        if (nextShown && !ui.osd) ui.focus(ui.nextPlay)
+        if (!nextShown) ui.promptFocused = false
     }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { session.pause() }
 
@@ -325,7 +359,15 @@ private fun PlayerUi(session: PlaybackSession, vm: PlayerViewModel, onExit: () -
                 playedFraction = if (state.durationMs > 0) shownPosition.toFloat() / state.durationMs else 0f,
                 initial = ui.drawerInitial,
                 onClose = ::closeDrawer,
-                onPage = { state.itemId?.let(onOpenDetails) },
+                onPage = {
+                    val id = state.itemId
+                    val seriesId = info?.seriesId
+                    when {
+                        id == null -> Unit
+                        seriesId != null -> onOpenSeries(seriesId, id)
+                        else -> onOpenDetails(id)
+                    }
+                },
                 onEpisode = { id ->
                     if (id == state.itemId) {
                         closeDrawer()
@@ -335,6 +377,25 @@ private fun PlayerUi(session: PlaybackSession, vm: PlayerViewModel, onExit: () -
                     }
                 },
                 modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
+        next?.let { n ->
+            NextEpisodeCard(
+                n,
+                remainingMs = remainingMs,
+                playNow = ui.nextPlay,
+                onPlay = {
+                    hideOsd()
+                    ui.focus(ui.root)
+                    vm.playEpisode(n.id)
+                },
+                onStay = {
+                    ui.nextDismissedFor = state.itemId
+                    ui.focus(if (ui.osd) ui.playPause else ui.root)
+                },
+                onFocus = { ui.promptFocused = it },
+                // Above the controls while they are shown.
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 48.dp, bottom = if (ui.osd) 132.dp else 32.dp),
             )
         }
         if (state.loading && state.error == null) LoadingBadge(Modifier.align(Alignment.Center))
@@ -373,6 +434,7 @@ private fun onNavigationKey(
     scrub: (Int, Int) -> Unit,
     showOsd: (FocusRequester) -> Unit,
     openDrawer: () -> Unit,
+    promptShown: Boolean,
 ): Boolean {
     if (BuildConfig.DEBUG && !ui.debugMenu) {
         when (code) {
@@ -388,6 +450,8 @@ private fun onNavigationKey(
         }
     }
     if (ui.panel != null || ui.drawer || ui.debugMenu) return false
+    // The "next episode" card over the bare video: ←/→ and OK work its buttons.
+    if (!ui.osd && promptShown && ui.promptFocused && code in PROMPT_KEYS) return false
     if (!ui.osd) {
         when (code) {
             AndroidKeyEvent.KEYCODE_DPAD_UP if tour != null -> {
@@ -563,21 +627,9 @@ private fun PanelLayer(
                     session.selectSubtitle(tracks.subtitles.firstOrNull { it.key == c.key }?.index)
                 }
             }
-            PanelSection("РАЗМЕР") {
-                PanelChips(SubtitleStyle.Size.entries.map { PanelChoice("size/$it", it.name, null, it == style.size) }) { c ->
-                    vm.setSubtitleStyle(style.copy(size = SubtitleStyle.Size.valueOf(c.key.substringAfter('/'))))
-                }
-            }
-            PanelSection("ЦВЕТ") {
-                PanelChips(SUBTITLE_COLORS.map { (argb, name) -> PanelChoice("color/$argb", name, null, argb == style.color, Color(argb)) }) { c ->
-                    vm.setSubtitleStyle(style.copy(color = c.key.substringAfter('/').toInt()))
-                }
-            }
-            PanelSection("ФОН") {
-                PanelChips(SUBTITLE_BACKGROUNDS.map { (bg, name) -> PanelChoice("bg/$bg", name, null, bg == style.background) }) { c ->
-                    vm.setSubtitleStyle(style.copy(background = SubtitleStyle.Background.valueOf(c.key.substringAfter('/'))))
-                }
-            }
+            PanelSection("РАЗМЕР") { PanelChips(SubtitleChoices.sizes(style)) { vm.setSubtitleStyle(SubtitleChoices.apply(style, it)) } }
+            PanelSection("ЦВЕТ") { PanelChips(SubtitleChoices.colors(style)) { vm.setSubtitleStyle(SubtitleChoices.apply(style, it)) } }
+            PanelSection("ФОН") { PanelChips(SubtitleChoices.backgrounds(style)) { vm.setSubtitleStyle(SubtitleChoices.apply(style, it)) } }
             val codec = selected?.codec?.lowercase()
             when {
                 codec in GRAPHIC_SUBTITLES -> PanelNote("Это графические субтитры (картинки): они показываются как есть, размер и цвет к ним не применяются.")
@@ -644,9 +696,15 @@ private fun PanelLayer(
     }
 }
 
-private val SUBTITLE_COLORS = listOf(SubtitleStyle.WHITE to "Белый", SubtitleStyle.YELLOW to "Жёлтый", SubtitleStyle.LIGHT_BLUE to "Голубой")
-private val SUBTITLE_BACKGROUNDS = listOf(SubtitleStyle.Background.NONE to "Нет", SubtitleStyle.Background.SHADOW to "Тень", SubtitleStyle.Background.BOX to "Плашка")
 private val GRAPHIC_SUBTITLES = setOf("pgssub", "hdmv_pgs_subtitle", "dvdsub", "dvd_subtitle", "vobsub", "dvbsub")
+
+private val PROMPT_KEYS = setOf(
+    AndroidKeyEvent.KEYCODE_DPAD_LEFT,
+    AndroidKeyEvent.KEYCODE_DPAD_RIGHT,
+    AndroidKeyEvent.KEYCODE_DPAD_CENTER,
+    AndroidKeyEvent.KEYCODE_ENTER,
+    AndroidKeyEvent.KEYCODE_NUMPAD_ENTER,
+)
 
 private const val OSD_TIMEOUT_MS = 6_000L
 private const val TOP_SHADE = 105

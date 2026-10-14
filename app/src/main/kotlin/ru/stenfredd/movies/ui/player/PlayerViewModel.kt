@@ -56,11 +56,21 @@ data class EpisodeModel(
     val isNew: Boolean,
 )
 
+/** The episode after the one being played: the "Следующая через N с" card. */
+@Immutable
+data class NextEpisode(
+    val id: UUID,
+    /** "S1 · E5 · Разлом" */
+    val title: String,
+    val image: RemoteImageSpec?,
+)
+
 /** What the controls and the drawer show about the item being played; display strings only. */
 @Immutable
 data class PlayerInfo(
     val id: UUID,
     val isEpisode: Boolean,
+    val seriesId: UUID?,
     /** "ФИЛЬМ", "СЕРИАЛ" */
     val label: String,
     val title: String,
@@ -90,6 +100,7 @@ data class SeasonEpisodes(
     val episodes: List<EpisodeModel>,
     val previous: UUID?,
     val next: UUID?,
+    val nextEpisode: NextEpisode?,
 )
 
 @HiltViewModel
@@ -211,6 +222,13 @@ class PlayerViewModel @javax.inject.Inject constructor(
             },
             previous = all.getOrNull(index - 1)?.id?.takeIf { index > 0 },
             next = all.getOrNull(index + 1)?.id?.takeIf { index >= 0 },
+            nextEpisode = all.getOrNull(index + 1)?.takeIf { index >= 0 }?.let { n ->
+                NextEpisode(
+                    id = n.id,
+                    title = listOfNotNull(n.seasonNumber?.let { "S$it" }, n.episodeNumber?.let { "E$it" }, n.name).joinToString(" · "),
+                    image = cards.image(n.primary ?: n.thumb ?: n.backdrop, PlayerLayout.NEXT_W, PlayerLayout.NEXT_H),
+                )
+            },
         )
     }
 
@@ -221,6 +239,7 @@ class PlayerViewModel @javax.inject.Inject constructor(
         return PlayerInfo(
             id = item.id,
             isEpisode = episode,
+            seriesId = item.seriesId.takeIf { episode },
             label = if (episode) "СЕРИАЛ" else "ФИЛЬМ",
             title = if (episode) item.seriesName ?: item.name else item.name,
             subtitle = if (episode) {
@@ -290,4 +309,6 @@ internal object PlayerLayout {
     const val POSTER_W = 100f
     const val POSTER_H = 150f
     const val AVATAR = 24f
+    const val NEXT_W = 104f
+    const val NEXT_H = 58.5f
 }

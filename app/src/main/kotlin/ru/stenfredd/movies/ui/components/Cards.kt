@@ -38,7 +38,7 @@ data class PosterModel(
     val key: String,
     val title: String,
     val caption: String?,
-    val imageUrl: String?,
+    val image: RemoteImageSpec?,
     /** Format badge at the bottom left: "4K", "1080p". */
     val badge: String? = null,
     /** Watch progress 0..1, or null. */
@@ -53,7 +53,7 @@ data class WideModel(
     val key: String,
     val title: String,
     val subtitle: String,
-    val imageUrl: String?,
+    val image: RemoteImageSpec?,
     val progress: Float?,
 )
 
@@ -73,7 +73,7 @@ fun PosterCard(model: PosterModel, onClick: () -> Unit, modifier: Modifier = Mod
                 .size(AppDimens.POSTER_W.dp, AppDimens.POSTER_H.dp)
                 .clickable(interactionSource = null, indication = null, onClick = onClick),
         ) {
-            RemoteImage(model.imageUrl, PosterCorner, Modifier.fillMaxSize())
+            RemoteImage(model.image, PosterCorner, Modifier.fillMaxSize())
             if (model.isNew) NewBadge(Modifier.align(Alignment.TopStart).padding(6.dp))
             if (model.watched) WatchedBadge(Modifier.align(Alignment.TopEnd).padding(6.dp))
             // The mockup's bottom shade under the badge costs a card-sized blend; a small dark plate does the same job.
@@ -116,7 +116,7 @@ fun WideCard(model: WideModel, onClick: () -> Unit, modifier: Modifier = Modifie
             .size(AppDimens.WIDE_W.dp, AppDimens.WIDE_H.dp)
             .clickable(interactionSource = null, indication = null, onClick = onClick),
     ) {
-        RemoteImage(model.imageUrl, WideCorner, Modifier.fillMaxSize(), shade = WideShade)
+        RemoteImage(model.image, WideCorner, Modifier.fillMaxSize(), shade = WideShade)
         Column(Modifier.align(Alignment.BottomStart).padding(start = 10.dp, end = 10.dp, bottom = 11.dp)) {
             BasicText(model.title, style = AppType.CardTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
             BasicText(
@@ -141,7 +141,7 @@ data class FeaturedModel(
     val title: String,
     val subtitle: String,
     val description: String?,
-    val imageUrl: String?,
+    val image: RemoteImageSpec?,
     val progress: Float,
     val remaining: String?,
 )
@@ -154,7 +154,7 @@ fun FeaturedCard(model: FeaturedModel, onClick: () -> Unit, modifier: Modifier =
             .size(410.dp, 230.5.dp)
             .clickable(interactionSource = null, indication = null, onClick = onClick),
     ) {
-        RemoteImage(model.imageUrl, FeaturedCorner, Modifier.fillMaxSize(), shade = FeaturedShade)
+        RemoteImage(model.image, FeaturedCorner, Modifier.fillMaxSize(), shade = FeaturedShade)
         Column(Modifier.align(Alignment.BottomStart).padding(start = 20.dp, end = 20.dp, bottom = 22.dp)) {
             BasicText(model.label, style = AppType.MonoLabel)
             BasicText(

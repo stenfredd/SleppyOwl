@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
+    alias(libs.plugins.androidx.baselineprofile)
 }
 
 android {
@@ -49,6 +50,7 @@ android {
 
 dependencies {
     implementation(project(":core:jellyfin"))
+    implementation(project(":core:data"))
     implementation(project(":playback:core"))
     implementation(project(":playback:engine-exo"))
     implementation(project(":playback:engine-vlc"))
@@ -73,4 +75,5 @@ dependencies {
     ksp(libs.hilt.compiler)
     implementation(libs.timber)
     implementation(libs.androidx.profileinstaller)
+    baselineProfile(project(":baselineprofile"))
 }

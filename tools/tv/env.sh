@@ -16,7 +16,8 @@ play() {
 # Журнал решений сессии воспроизведения
 plog() { $A logcat -d | grep -E " (I|W|E) PlaybackSession" | sed 's/^.*PlaybackSession: //' | cut -c1-300; }
 # Токен с ТВ (только debug-сборка: run-as читает DataStore приложения)
-tv_token() { $A exec-out run-as ru.stenfredd.movies cat files/datastore/jellyfin_session.preferences_pb | strings -n 30 | grep -oE '[0-9a-f]{32}' | head -1; }
+# (текущий аккаунт: первый в списке — последний использованный)
+tv_token() { $A exec-out run-as ru.stenfredd.movies cat files/datastore/jellyfin_session.preferences_pb | grep -aoE '"token":"[0-9a-f]{32}"' | head -1 | grep -oE '[0-9a-f]{32}'; }
 # Что играет на ТВ по данным сервера: название, позиция (с), PlayMethod. X-Emby-Token сервер 12.x не принимает.
 sess() {
   curl -s -H "Authorization: MediaBrowser Token=\"${TV_TOKEN:=$(tv_token)}\"" "http://192.168.1.10:8096/Sessions?activeWithinSeconds=60" |
@@ -40,4 +41,20 @@ ui_bench() {
   $A shell dumpsys gfxinfo $P | grep -E 'Janky frames:|50th percentile|90th percentile|99th percentile|50th gpu|90th gpu'
   $A shell dumpsys gfxinfo $P framestats | python3 tools/tv/framestats.py
 }
-install_release() { ./gradlew :app:assembleRelease -q && $A install -r app/build/outputs/apk/release/app-release.apk; }
+# Release + сразу компиляция по baseline profile (иначе ТВ скомпилирует его только при фоновом обслуживании).
+install_release() {
+  ./gradlew :app:assembleRelease -q && $A install -r app/build/outputs/apk/release/app-release.apk || return
+  $A shell am broadcast -a androidx.profileinstaller.action.INSTALL_PROFILE ru.stenfredd.movies/androidx.profileinstaller.ProfileInstallReceiver >/dev/null
+  $A shell cmd package compile -f -m speed-profile ru.stenfredd.movies
+}
+# Снять baseline profile заново на ТВ (~8 мин, ТВ должен быть с выполненным входом) и положить в app/src/release.
+# Gradle может закончить с «failing tests» при успешном прогоне — тогда профиль копируется вручную.
+gen_profile() {
+  ANDROID_SERIAL=$TV_ADB ./gradlew :app:generateReleaseBaselineProfile -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true
+  local src="baselineprofile/build/outputs/connected_android_test_additional_output/nonMinifiedRelease/connected"
+  src=$(find "$src" -name 'BaselineProfileGenerator_generate-startup-prof.txt' | head -1)
+  [ -n "$src" ] || { echo "профиль не найден"; return 1; }
+  cp "$src" app/src/release/generated/baselineProfiles/baseline-prof.txt
+  cp "$src" app/src/release/generated/baselineProfiles/startup-prof.txt
+  echo "профиль: $(wc -l < "$src") правил"
+}

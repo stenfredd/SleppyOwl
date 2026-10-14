@@ -553,6 +553,7 @@ class PlaybackSession(
                         failed = failed,
                     ),
                 ) }
+                session.notifyUserDataChanged(item.id)
                 if (method == PlayMethod.TRANSCODE && sessionId != null) {
                     // HLS endpoints are hidden from the 12.x OpenAPI, so the SDK has no method for this.
                     session.call {

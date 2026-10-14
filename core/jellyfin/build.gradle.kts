@@ -17,6 +17,7 @@ android {
 dependencies {
     api(libs.jellyfin.sdk)
     api(libs.kotlinx.coroutines.android)
+    api(libs.okhttp)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)

@@ -52,19 +52,22 @@ class CardImageTransformation(private val radiusPx: Float, private val shade: Im
             )
         }
         canvas.drawRoundRect(RectF(0f, 0f, w.toFloat(), h.toFloat()), radiusPx, radiusPx, paint)
-        if (shade != null) {
-            val top = h * (1f - shade.height)
-            val gradient = Paint()
-            gradient.shader = LinearGradient(
-                0f, h.toFloat(), 0f, top,
-                shade.stops.map { it.second.toArgb() }.toIntArray(),
-                shade.stops.map { it.first }.toFloatArray(),
-                Shader.TileMode.CLAMP,
-            )
-            // Only over the image's own pixels, so the rounded corners stay transparent.
-            gradient.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP)
-            canvas.drawRect(0f, top, w.toFloat(), h.toFloat(), gradient)
-        }
+        shade?.let { canvas.drawShade(it, w, h) }
         return output
     }
+}
+
+/** Draws [shade] over the bottom of a [w]×[h] image already on this canvas, only over its own (non-transparent) pixels. */
+internal fun Canvas.drawShade(shade: ImageShade, w: Int, h: Int) {
+    val top = h * (1f - shade.height)
+    val gradient = Paint()
+    gradient.shader = LinearGradient(
+        0f, h.toFloat(), 0f, top,
+        shade.stops.map { it.second.toArgb() }.toIntArray(),
+        shade.stops.map { it.first }.toFloatArray(),
+        Shader.TileMode.CLAMP,
+    )
+    // Only over the image's own pixels, so the rounded corners stay transparent.
+    gradient.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP)
+    drawRect(0f, top, w.toFloat(), h.toFloat(), gradient)
 }

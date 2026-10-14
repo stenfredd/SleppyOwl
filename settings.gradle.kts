@@ -17,7 +17,9 @@ dependencyResolutionManagement {
 rootProject.name = "movies"
 
 include(":app")
+include(":baselineprofile")
 include(":core:jellyfin")
+include(":core:data")
 include(":playback:api")
 include(":playback:core")
 include(":playback:engine-exo")

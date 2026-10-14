@@ -57,6 +57,14 @@ interface VideoPathSwitchable {
     fun setVideoPathMode(mode: Mode)
 }
 
+/**
+ * Dolby Vision files with a base layer can be decoded either as that base layer (HDR10/HLG, the default) or through
+ * the Dolby Vision decoder, which switches the TV into its Dolby Vision mode. Must be set before [PlaybackEngine.load].
+ */
+interface DolbyVisionSwitchable {
+    var useDolbyVisionDecoder: Boolean
+}
+
 interface SubtitleDelayCapable {
     fun setSubtitleDelay(delayMs: Long)
 }

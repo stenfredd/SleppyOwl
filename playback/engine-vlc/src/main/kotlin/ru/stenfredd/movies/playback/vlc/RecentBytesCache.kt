@@ -31,7 +31,11 @@ internal class RecentBytesCache(private val capacity: Long) {
     @Synchronized
     fun putMeta(url: String, meta: Meta) {
         val entry = entries.getOrPut(url, ::Entry)
-        if (entry.meta?.totalLength != meta.totalLength) entry.blocks.clear()
+        if (entry.meta?.totalLength != meta.totalLength) {
+            size -= entry.blocks.values.sumOf { it.size.toLong() }
+            entry.blocks.clear()
+            order.removeAll { it.first == url }
+        }
         entry.meta = meta
     }
 
@@ -41,7 +45,10 @@ internal class RecentBytesCache(private val capacity: Long) {
         val floor = entry.blocks.floorEntry(offset)
         // Already covered (two connections fetched the same bytes).
         if (floor != null && floor.key + floor.value.size >= offset + data.size) return
-        entry.blocks.put(offset, data)?.let { size -= it.size }
+        entry.blocks.put(offset, data)?.let { old ->
+            size -= old.size
+            order.remove(url to offset)
+        }
         size += data.size
         order.addLast(url to offset)
         while (size > capacity) {

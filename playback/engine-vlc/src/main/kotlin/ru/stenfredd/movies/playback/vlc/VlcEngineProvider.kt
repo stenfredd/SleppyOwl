@@ -51,7 +51,11 @@ class VlcEngineProvider @Inject constructor(
             // Hardware decoding is only used by this engine for >1080p (see VlcEngine), so treat the rest as software.
             if (!hardware || (v.width ?: 0) * (v.height ?: 0) <= 1920 * 1088) {
                 val pixels = (v.width ?: 0) * (v.height ?: 0)
-                losses += if (pixels > 1920 * 1088 || (v.bitDepth ?: 8) > 8) Loss.SOFTWARE_DECODE_HEAVY else Loss.SOFTWARE_DECODE
+                // Deinterlacing (yadif) doubles the frame rate. The tour on the TV: 720p60 H.264 and 1080i50 drop
+                // frames in VLC, 1080p at 24-30 and SD at 50 (deinterlaced DVD) play fine.
+                val fps = (v.realFrameRate ?: v.averageFrameRate ?: 0f) * if (v.isInterlaced) 2 else 1
+                val heavy = pixels > 1920 * 1088 || (v.bitDepth ?: 8) > 8 || (fps > MAX_LIGHT_FPS && pixels * fps > MAX_LIGHT_PIXEL_RATE)
+                losses += if (heavy) Loss.SOFTWARE_DECODE_HEAVY else Loss.SOFTWARE_DECODE
                 notes += v.codec.orEmpty()
             }
             when {
@@ -92,5 +96,8 @@ class VlcEngineProvider @Inject constructor(
     companion object {
         val ID = EngineId("vlc")
         private const val MAX_BITRATE = 400_000_000
+        private const val MAX_LIGHT_FPS = 31f
+        /** Above 30 fps: SD at 50 (~21 Mpx/s) is light, 720p60 (~55 Mpx/s) is not. */
+        private const val MAX_LIGHT_PIXEL_RATE = 1280f * 720 * 50
     }
 }

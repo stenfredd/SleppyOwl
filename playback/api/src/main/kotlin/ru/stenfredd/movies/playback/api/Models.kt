@@ -35,6 +35,8 @@ data class EngineError(
         AUDIO_OUTPUT,
         NETWORK,
         NO_VIDEO_OUTPUT,
+        /** Playing but not progressing, or dropping a large share of frames (seen by the session's stall watchdog). */
+        STALLED,
         UNKNOWN,
     }
 

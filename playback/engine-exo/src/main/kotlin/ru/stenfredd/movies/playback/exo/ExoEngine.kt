@@ -3,6 +3,11 @@
 package ru.stenfredd.movies.playback.exo
 
 import android.content.Context
+import android.content.res.Configuration
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.view.Gravity
 import android.view.SurfaceView
 import android.view.TextureView
@@ -22,26 +27,38 @@ import androidx.media3.common.VideoSize
 import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DecoderReuseEvaluation
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.mediacodec.MediaCodecInfo
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.SubtitleView
+import io.github.peerless2012.ass.media.AssHandler
+import io.github.peerless2012.ass.media.AssHandlerConfig
+import io.github.peerless2012.ass.media.extractor.AssMatroskaExtractor
+import io.github.peerless2012.ass.media.factory.AssRenderersFactory
+import io.github.peerless2012.ass.media.parser.AssSubtitleParserFactory
+import io.github.peerless2012.ass.media.type.AssRenderType
+import io.github.peerless2012.ass.media.widget.AssSubtitleView
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlin.math.abs
+import kotlin.math.roundToInt
 import org.jellyfin.sdk.model.api.MediaStreamType
 import org.jellyfin.sdk.model.api.PlayMethod
 import org.jellyfin.sdk.model.api.VideoRange
 import org.jellyfin.sdk.model.api.VideoRangeType
 import ru.stenfredd.movies.playback.api.Codecs
+import ru.stenfredd.movies.playback.api.DolbyVisionSwitchable
 import ru.stenfredd.movies.playback.api.EngineError
 import ru.stenfredd.movies.playback.api.EngineEvent
 import ru.stenfredd.movies.playback.api.EngineState
@@ -53,8 +70,12 @@ import ru.stenfredd.movies.playback.api.embeddedOrdinal
 import ru.stenfredd.movies.playback.api.videoStream
 import timber.log.Timber
 
-class ExoEngine(context: Context) : PlaybackEngine, VideoPathSwitchable {
+class ExoEngine(context: Context) : PlaybackEngine, VideoPathSwitchable, DolbyVisionSwitchable {
     override val id = ExoEngineProvider.ID
+
+    /** See [gpuPathFor]: only TVs known to over-process SDR on the video plane. */
+    private val sdrThroughGpu = Build.MANUFACTURER.equals("Xiaomi", ignoreCase = true) &&
+        (context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
 
     private val trackSelector = DefaultTrackSelector(context).apply {
         parameters = buildUponParameters()
@@ -63,19 +84,50 @@ class ExoEngine(context: Context) : PlaybackEngine, VideoPathSwitchable {
             .build()
     }
 
+    /**
+     * Full ASS/SSA rendering (styles, positioning, embedded fonts) through libass (ass-media), drawn by an overlay
+     * view above the video. Without it media3 turns ASS into plain text cues.
+     */
+    private val assHandler = AssHandler(AssRenderType.OVERLAY_OPEN_GL, AssHandlerConfig(cacheSize = ASS_CACHE_MB, maxRenderPixels = 1920 * 1080))
+    private val assParserFactory = AssSubtitleParserFactory(assHandler)
+
     private val player: ExoPlayer = ExoPlayer.Builder(
         context,
-        DefaultRenderersFactory(context)
-            .setMediaCodecSelector(::decoderInfos)
-            .setEnableDecoderFallback(true)
-            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON),
+        AssRenderersFactory(
+            assHandler,
+            DefaultRenderersFactory(context)
+                .setMediaCodecSelector(::decoderInfos)
+                .setEnableDecoderFallback(true)
+                .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON),
+        ),
     )
         .setTrackSelector(trackSelector)
+        .setLoadControl(
+            DefaultLoadControl.Builder()
+                .setTargetBufferBytes(bufferBytes())
+                .setPrioritizeTimeOverSizeThresholds(false)
+                .build(),
+        )
+        .setMediaSourceFactory(
+            DefaultMediaSourceFactory(context, ExoExtractorsFactory { AssMatroskaExtractor(assParserFactory, assHandler) })
+                // External ASS files are parsed by this factory directly.
+                .setSubtitleParserFactory(assParserFactory),
+        )
         .setAudioAttributes(
             AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(),
             true,
         )
         .build()
+
+    /**
+     * The default target (~145 MB for video) is sized for phones with big heaps: this TV gives the app 192 MB
+     * (512 MB with largeHeap), and once the buffer filled up after a few engine switches GC thrashed, playback
+     * stuttered and the app died with OutOfMemoryError. A quarter of the heap, at most 64 MB: still ~8 s of a 60 Mbit/s 4K remux, plenty over the LAN.
+     */
+    private fun bufferBytes(): Int {
+        val heapMb = (Runtime.getRuntime().maxMemory() shr 20).toInt()
+        return (heapMb / 4).coerceIn(MIN_BUFFER_MB, MAX_BUFFER_MB) shl 20
+    }
 
     private val _state = MutableStateFlow(EngineState())
     override val state = _state.asStateFlow()
@@ -121,6 +173,11 @@ class ExoEngine(context: Context) : PlaybackEngine, VideoPathSwitchable {
         override fun onPlayerError(error: PlaybackException) = reportError(map(error))
     }
 
+    private var audioUnderruns = 0
+    private var rebuffers = 0
+    /** Buffering right after load/seek is expected, only later ones are counted. */
+    private var startedAtMs = 0L
+
     private val analytics = object : AnalyticsListener {
         override fun onVideoDecoderInitialized(eventTime: AnalyticsListener.EventTime, decoderName: String, initializedTimestampMs: Long, initializationDurationMs: Long) {
             _stats.update { it.copy(videoDecoder = decoderName) }
@@ -137,6 +194,24 @@ class ExoEngine(context: Context) : PlaybackEngine, VideoPathSwitchable {
         override fun onDroppedVideoFrames(eventTime: AnalyticsListener.EventTime, droppedFrames: Int, elapsedMs: Long) {
             _stats.update { it.copy(droppedFrames = it.droppedFrames + droppedFrames) }
         }
+        // Not visible as dropped frames: AC3-in-AVI / MPEG-PS style timing problems show up as these.
+        override fun onAudioUnderrun(eventTime: AnalyticsListener.EventTime, bufferSize: Int, bufferSizeMs: Long, elapsedSinceLastFeedMs: Long) {
+            audioUnderruns++
+            Timber.w("Exo audio underrun #%d (%d ms since last feed)", audioUnderruns, elapsedSinceLastFeedMs)
+            _stats.update { it.copy(extra = it.extra + ("срывы звука" to audioUnderruns.toString())) }
+        }
+        override fun onBandwidthEstimate(eventTime: AnalyticsListener.EventTime, totalLoadTimeMs: Int, totalBytesLoaded: Long, bitrateEstimate: Long) {
+            Timber.d("Exo bandwidth: %.1f Mbit/s (%d KB in %d ms)", bitrateEstimate / 1e6, totalBytesLoaded / 1024, totalLoadTimeMs)
+        }
+        override fun onAudioSinkError(eventTime: AnalyticsListener.EventTime, audioSinkError: Exception) {
+            Timber.w(audioSinkError, "Exo audio sink error")
+        }
+        override fun onPlaybackStateChanged(eventTime: AnalyticsListener.EventTime, state: Int) {
+            if (state != Player.STATE_BUFFERING || eventTime.realtimeMs - startedAtMs < 3000) return
+            rebuffers++
+            Timber.w("Exo rebuffering #%d at %d ms", rebuffers, eventTime.currentPlaybackPositionMs)
+            _stats.update { it.copy(extra = it.extra + ("буферизаций" to rebuffers.toString())) }
+        }
         override fun onAudioTrackInitialized(eventTime: AnalyticsListener.EventTime, audioTrackConfig: AudioSink.AudioTrackConfig) {
             val c = audioTrackConfig
             val kind = if (c.encoding == C.ENCODING_PCM_16BIT || c.encoding == C.ENCODING_PCM_FLOAT) "PCM (декодировано)" else "passthrough"
@@ -146,16 +221,60 @@ class ExoEngine(context: Context) : PlaybackEngine, VideoPathSwitchable {
         }
     }
 
-    init {
-        player.addListener(listener)
-        player.addAnalyticsListener(analytics)
-        applyVideoPath()
-    }
+    /**
+     * Chosen in the player menu or by a variant key. Per engine: a new playback starts in AUTO, within one playback
+     * PlaybackSession carries it over to the next engine instance (fallback, restart).
+     */
+    private var pathMode = VideoPathSwitchable.Mode.AUTO
+
+    /**
+     * Default set by [ExoEngineProvider.create] (on if the display supports Dolby Vision); debug variants 1/4 override it.
+     * Carried over like [pathMode]. With it the TV does switch to Dolby Vision (DispService "Hdr Dolby").
+     */
+    override var useDolbyVisionDecoder = false
 
     override val videoPathMode get() = pathMode
     override var usingGpuPath = false
         private set
     private var pathApplied = false
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var lastRendered = -1
+    private var lastSkipped = 0
+
+    init {
+        assHandler.init(player)
+        // Inside the aspect frame: libass lays out relative to the picture, not to the letterboxed screen.
+        aspectFrame.addView(AssSubtitleView(context, assHandler), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        player.addListener(listener)
+        player.addAnalyticsListener(analytics)
+        applyVideoPath()
+        mainHandler.postDelayed(::sampleFrameRate, FRAME_RATE_SAMPLE_MS)
+    }
+
+    /**
+     * Frames actually shown per second, from the decoder counters. "Dropped" only counts frames that were too late;
+     * a stream the decoder skips or never outputs still plays at a moving position with 0 dropped
+     * (a DVD rip: ~1 fps on screen, 0 dropped).
+     */
+    private fun sampleFrameRate() {
+        val counters = player.videoDecoderCounters
+        if (counters != null && player.isPlaying) {
+            counters.ensureUpdated()
+            val rendered = counters.renderedOutputBufferCount
+            if (lastRendered >= 0) {
+                val fps = (rendered - lastRendered) * 1000f / FRAME_RATE_SAMPLE_MS
+                val skipped = counters.skippedOutputBufferCount + counters.skippedInputBufferCount
+                Timber.d("Exo video: %.1f fps shown, skipped %d, dropped %d", fps, skipped - lastSkipped, counters.droppedBufferCount)
+                _stats.update { it.copy(extra = it.extra + ("кадров/с на экране" to "%.1f".format(fps)) + ("пропущено декодером" to skipped.toString())) }
+                lastSkipped = skipped
+            }
+            lastRendered = rendered
+        } else {
+            lastRendered = -1
+        }
+        mainHandler.postDelayed(::sampleFrameRate, FRAME_RATE_SAMPLE_MS)
+    }
 
     override fun setVideoPathMode(mode: VideoPathSwitchable.Mode) {
         pathMode = mode
@@ -166,14 +285,26 @@ class ExoEngine(context: Context) : PlaybackEngine, VideoPathSwitchable {
      * On the Xiaomi TV the hardware video plane gets the TV's own "enhancement" (sharpening, contrast): compressed
      * SDR sources look visibly harsher than through the GPU (user A/B against VLC, 2026-10-12). AUTO therefore
      * composites SDR up to 1080p through the GPU, and keeps the video plane where it is required: HDR (the GPU
-     * path is SDR only) and >1080p (the UI surface is 1080p, the GPU path would throw away resolution).
+     * path is SDR only), >1080p (the UI surface is 1080p, the GPU path would throw away resolution) and interlaced
+     * video (only the video plane deinterlaces; through the GPU the fields show as combing). Also frame rates that
+     * don't divide 60 Hz (23.976/24/25/50): the video plane switches the panel to 100/120 Hz, the GPU path stays at
+     * 60 Hz and judders (3:2). The user preferred the smooth video plane (2026-10-13). Other devices (phones, TVs
+     * without such post-processing) always use the video plane: it is cheaper and keeps the panel's own refresh rate.
      */
     private fun gpuPathFor(request: LoadRequest?): Boolean = when (pathMode) {
         VideoPathSwitchable.Mode.GPU -> true
         VideoPathSwitchable.Mode.VIDEO_PLANE -> false
-        VideoPathSwitchable.Mode.AUTO -> request?.mediaSource?.videoStream?.let { v ->
-            v.videoRange != VideoRange.HDR && (v.width ?: 0) <= 1920 && (v.height ?: 0) <= 1088
+        VideoPathSwitchable.Mode.AUTO -> sdrThroughGpu && request?.mediaSource?.videoStream?.let { v ->
+            v.videoRange != VideoRange.HDR && !v.isInterlaced && (v.width ?: 0) <= 1920 && (v.height ?: 0) <= 1088 &&
+                fitsUiRefreshRate(v.realFrameRate ?: v.averageFrameRate)
         } == true
+    }
+
+    /** 30/60 fps (and 29.97/59.94) show evenly on the 60 Hz UI surface; unknown rate counts as fitting. */
+    private fun fitsUiRefreshRate(fps: Float?): Boolean {
+        if (fps == null || fps <= 0f) return true
+        val cadence = UI_REFRESH_HZ / fps
+        return cadence >= 0.99f && abs(cadence - cadence.roundToInt()) < 0.02f
     }
 
     private fun applyVideoPath() {
@@ -189,6 +320,7 @@ class ExoEngine(context: Context) : PlaybackEngine, VideoPathSwitchable {
         if (gpu) player.setVideoTextureView(textureView) else player.setVideoSurfaceView(surfaceView)
         val label = (if (gpu) "через GPU (TextureView)" else "видеослой ТВ (SurfaceView)") +
             if (pathMode == VideoPathSwitchable.Mode.AUTO) ", авто" else ", вручную"
+        Timber.i("Exo video output: %s", label)
         _stats.update { it.copy(extra = it.extra + ("вывод видео" to label)) }
     }
 
@@ -221,6 +353,7 @@ class ExoEngine(context: Context) : PlaybackEngine, VideoPathSwitchable {
             .setSubtitleConfigurations(subtitles)
             .apply { if (request.url.contains(".m3u8")) setMimeType(MimeTypes.APPLICATION_M3U8) }
             .build()
+        startedAtMs = SystemClock.elapsedRealtime()
         player.setMediaItem(item, request.startPositionMs)
         player.prepare()
     }
@@ -230,7 +363,7 @@ class ExoEngine(context: Context) : PlaybackEngine, VideoPathSwitchable {
      * metadata. See [ExoEngineProvider.USE_DOLBY_VISION_DECODER] for why that is the default.
      */
     private fun decoderInfos(mimeType: String, requiresSecureDecoder: Boolean, requiresTunnelingDecoder: Boolean): List<MediaCodecInfo> {
-        if (mimeType == MimeTypes.VIDEO_DOLBY_VISION && !ExoEngineProvider.USE_DOLBY_VISION_DECODER && !requiresDolbyVisionDecoder) {
+        if (mimeType == MimeTypes.VIDEO_DOLBY_VISION && !useDolbyVisionDecoder && !requiresDolbyVisionDecoder) {
             return emptyList()
         }
         return MediaCodecUtil.getDecoderInfos(mimeType, requiresSecureDecoder, requiresTunnelingDecoder)
@@ -240,7 +373,10 @@ class ExoEngine(context: Context) : PlaybackEngine, VideoPathSwitchable {
 
     override fun play() = player.play()
     override fun pause() = player.pause()
-    override fun seekTo(positionMs: Long) = player.seekTo(positionMs)
+    override fun seekTo(positionMs: Long) {
+        startedAtMs = SystemClock.elapsedRealtime()
+        player.seekTo(positionMs)
+    }
 
     override fun selectAudio(streamIndex: Int) {
         val req = request ?: return
@@ -262,10 +398,17 @@ class ExoEngine(context: Context) : PlaybackEngine, VideoPathSwitchable {
             textGroups.filterNot { it.getTrackFormat(0).id?.contains(EXTERNAL_PREFIX) == true }.getOrNull(ordinal)
         }
         if (group != null) builder.setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, 0))
+        Timber.i(
+            "Exo subtitle %d -> %s (text tracks: %s)",
+            streamIndex,
+            group?.getTrackFormat(0)?.let { "${it.id} ${it.sampleMimeType}" } ?: "не найдена",
+            textGroups.joinToString { "${it.getTrackFormat(0).id}" },
+        )
         trackSelector.parameters = builder.build()
     }
 
     override fun release() {
+        mainHandler.removeCallbacksAndMessages(null)
         detachVideo()
         player.removeListener(listener)
         player.removeAnalyticsListener(analytics)
@@ -347,9 +490,13 @@ class ExoEngine(context: Context) : PlaybackEngine, VideoPathSwitchable {
     }
 
     companion object {
-        /** Chosen in the player menu; kept for the process lifetime (no settings screen yet). */
-        private var pathMode = VideoPathSwitchable.Mode.AUTO
-
         private const val EXTERNAL_PREFIX = "ext:"
+        private const val MIN_BUFFER_MB = 32
+        private const val FRAME_RATE_SAMPLE_MS = 2000L
+        /** Compose UI surface on the TV; the GPU path is shown at this rate. */
+        private const val UI_REFRESH_HZ = 60f
+        /** libass glyph/bitmap cache; the default 128 MB of native memory is a lot on a 2 GB TV. */
+        private const val ASS_CACHE_MB = 32
+        private const val MAX_BUFFER_MB = 64
     }
 }

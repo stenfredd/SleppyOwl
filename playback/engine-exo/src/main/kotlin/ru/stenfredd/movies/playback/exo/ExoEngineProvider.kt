@@ -3,6 +3,7 @@ package ru.stenfredd.movies.playback.exo
 import android.content.Context
 import android.media.MediaCodecInfo.CodecProfileLevel
 import android.view.Display.HdrCapabilities
+import androidx.media3.decoder.ffmpeg.FfmpegLibrary
 import dagger.hilt.android.qualifiers.ApplicationContext
 import org.jellyfin.sdk.model.api.CodecType
 import org.jellyfin.sdk.model.api.DeviceProfile
@@ -53,18 +54,26 @@ class ExoEngineProvider @Inject constructor(
             }
             evaluateRange(v.videoRangeType, v.dvProfile, device, no, losses, notes)
             if (v.isInterlaced) losses += Loss.NO_DEINTERLACE
+            // DVD rips (MPEG-PS): such a rip combs in motion on the TV's video plane even with correct
+            // timestamps; it is bottom field first, while «Иван Васильевич» (MKV, top field first) is fine. Jellyfin
+            // doesn't report field order, so this goes by container; VLC (yadif) plays these cleanly (user, 2026-10-13).
+            if (v.isInterlaced && containers.any { it in PROGRAM_STREAM }) losses += Loss.DVD_COMBING
         }
 
         source.stream(selection.audioStreamIndex)?.let { a ->
             val mime = Codecs.audioMime(a.codec)
             val passthrough = Codecs.passthroughEncoding(a.codec, a.profile)?.let { it in device.passthroughEncodings } == true
-            if (!passthrough && (mime == null || !device.hasAudioDecoder(mime))) no += "аудио ${a.codec}"
-            if (passthrough) notes += "${a.codec}: passthrough"
+            when {
+                passthrough -> notes += "${a.codec}: passthrough"
+                mime != null && device.hasAudioDecoder(mime) -> Unit
+                mime != null && ffmpegDecodes(mime) -> notes += "${a.codec}: ffmpeg"
+                else -> no += "аудио ${a.codec}"
+            }
+            // AC3/DTS in AVI: re-framed by AviAudioFramingExtractor.
         }
 
         source.stream(selection.subtitleStreamIndex)?.let { s ->
             when (s.codec?.lowercase()) {
-                "ass", "ssa" -> losses += Loss.ASS_SIMPLIFIED
                 "pgssub", "dvdsub", "dvbsub" -> if (s.isExternal) no += "внешние ${s.codec}"
             }
         }
@@ -113,7 +122,7 @@ class ExoEngineProvider @Inject constructor(
     override fun deviceProfile(device: DeviceCapabilities): DeviceProfile {
         val videoCodecs = VIDEO_CODECS.filter { c -> Codecs.videoMime(c)?.let { m -> device.videoDecoders.any { it.mime.equals(m, true) } } == true }
         val audioCodecs = AUDIO_CODECS.filter { c ->
-            Codecs.audioMime(c)?.let(device::hasAudioDecoder) == true ||
+            Codecs.audioMime(c)?.let { device.hasAudioDecoder(it) || ffmpegDecodes(it) } == true ||
                 Codecs.passthroughEncoding(c, null)?.let { it in device.passthroughEncodings } == true
         }
         val hasDv = device.hardwareVideoDecoders(DV_MIME).isNotEmpty() && device.displaySupportsHdr(HdrCapabilities.HDR_TYPE_DOLBY_VISION)
@@ -178,23 +187,32 @@ class ExoEngineProvider @Inject constructor(
         }
     }
 
-    override fun create(device: DeviceCapabilities): PlaybackEngine = ExoEngine(context)
+    override fun create(device: DeviceCapabilities): PlaybackEngine = ExoEngine(context).apply {
+        useDolbyVisionDecoder = USE_DOLBY_VISION_DECODER && device.displaySupportsHdr(HdrCapabilities.HDR_TYPE_DOLBY_VISION)
+    }
 
     companion object {
         val ID = EngineId("exo")
         private const val DV_MIME = "video/dolby-vision"
 
         /**
-         * On the Xiaomi MT9689 the DV decoder (`c2.mtk.dvhe.st`) plays, but the picture is visibly duller than the
-         * same file's HDR10/HDR10+ base layer (user comparison against VLC, 2026-10-12): the TV apparently does not
-         * switch into Dolby Vision mode. Until that is solved (tunneling? see NEXT_SESSION.md §4.3) profiles with a
-         * base layer (8.x, 9, 10) are played as HEVC/AVC/AV1 HDR. Profile 5 always needs the DV decoder.
+         * Profiles with a base layer (8.x, 9, 10) go to the DV decoder when the display supports Dolby Vision, otherwise
+         * media3 plays them as HEVC/AVC/AV1 HDR. On the Xiaomi MT9689 (`c2.mtk.dvhe.st`) the TV switches to Dolby Vision
+         * and the user rated the picture good (2026-10-13; the earlier "duller" was the TV's DV picture mode).
+         * Debug variant 1 plays the base layer for comparison. Profile 5 always needs the DV decoder.
          */
-        const val USE_DOLBY_VISION_DECODER = false
+        const val USE_DOLBY_VISION_DECODER = true
         private const val MAX_BITRATE = 400_000_000
+        private val PROGRAM_STREAM = setOf("mpeg", "mpg", "vob", "mpegps")
         private val CONTAINERS = listOf("mkv", "webm", "mp4", "m4v", "mov", "ts", "mpegts", "avi", "mpeg", "ogg", "flv", "3gp")
         private val VIDEO_CODECS = listOf("h264", "hevc", "vp8", "vp9", "av1", "mpeg2video", "mpeg4")
         private val AUDIO_CODECS = listOf("aac", "mp3", "mp2", "ac3", "eac3", "truehd", "dts", "flac", "opus", "vorbis", "alac", "pcm_s16le", "pcm_s24le")
+
+        /**
+         * Jellyfin's media3 ffmpeg extension (TrueHD, DTS, ... without passthrough: phones, soundbars without the
+         * decoder). [ExoEngine] adds it after the MediaCodec renderers, so hardware decoders and passthrough win.
+         */
+        private fun ffmpegDecodes(mime: String) = FfmpegLibrary.supportsFormat(mime)
 
         private fun dvProfileConstant(profile: Int?): Int? = when (profile) {
             4 -> CodecProfileLevel.DolbyVisionProfileDvheDtr

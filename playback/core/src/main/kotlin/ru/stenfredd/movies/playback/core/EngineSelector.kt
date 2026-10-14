@@ -27,7 +27,7 @@ class EngineSelector @Inject constructor(
         providers.map { RankedEngine(it, it.evaluate(source, selection, device)) }
             .sortedWith(compareBy<RankedEngine> { score(it.verdict) }.thenBy { it.provider.priority })
 
-    private fun score(verdict: Verdict): Int = when (verdict) {
+    fun score(verdict: Verdict): Int = when (verdict) {
         is Verdict.Direct -> 0
         is Verdict.Degraded -> verdict.losses.sumOf(Loss::weight)
         is Verdict.No -> 10_000

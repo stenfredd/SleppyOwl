@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import org.jellyfin.sdk.model.api.MediaStreamType
 import org.jellyfin.sdk.model.api.PlayMethod
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import org.videolan.libvlc.Dialog
 import org.videolan.libvlc.LibVLC
@@ -130,6 +131,7 @@ class VlcEngine(context: Context, httpClient: OkHttpClient, private val device: 
         val m = Media(libVlc, proxy.localUrl(request.url).toUri()).apply {
             setHWDecoderEnabled(needsHardware, false)
             if (request.startPositionMs > 0) addOption(":start-time=${request.startPositionMs / 1000.0}")
+            if (request.startPositionMs > 0) startSeek(request.startPositionMs) else seekTargetMs = -1
             for (sub in request.externalSubtitles) addSlave(IMedia.Slave(IMedia.Slave.Type.Subtitle, 4, proxy.localUrl(sub.url)))
         }
         media?.release()
@@ -150,7 +152,46 @@ class VlcEngine(context: Context, httpClient: OkHttpClient, private val device: 
     }
 
     override fun seekTo(positionMs: Long) {
+        startSeek(positionMs)
         player.setTime(positionMs, false)
+    }
+
+    /*
+     * libVLC seeks in MPEG-PS (DVD rips) by an average-bitrate estimate and lands minutes off: asked for 30:00 it
+     * played 26:25 of a DVD rip, and its clock is right about that (checked against ffmpeg frames),
+     * so the user simply sees the wrong scene. After a seek (or a start position) we look where playback landed and
+     * re-seek with the error subtracted, a few times at most. Precise containers land within tolerance at once.
+     */
+    private var seekTargetMs = -1L
+    private var seekRequestMs = 0L
+    private var seekIssuedAt = 0L
+    private var seekAttempts = 0
+
+    private fun startSeek(targetMs: Long) {
+        seekTargetMs = targetMs
+        seekRequestMs = targetMs
+        seekIssuedAt = SystemClock.elapsedRealtime()
+        seekAttempts = 0
+    }
+
+    private fun checkSeek() {
+        if (seekTargetMs < 0) return
+        val time = player.time
+        val elapsed = SystemClock.elapsedRealtime() - seekIssuedAt
+        if (time <= 0 || elapsed < SEEK_SETTLE_MS) return
+        // Playback has been running for at most `elapsed` since the seek.
+        val landed = time - elapsed.coerceAtMost(time)
+        val error = seekTargetMs - landed
+        if (error in -SEEK_TOLERANCE_MS..SEEK_TOLERANCE_MS || seekAttempts >= MAX_SEEK_CORRECTIONS) {
+            if (seekAttempts > 0) Timber.i("VLC seek to %d s: landed at %d s after %d corrections", seekTargetMs / 1000, landed / 1000, seekAttempts)
+            seekTargetMs = -1
+            return
+        }
+        seekAttempts++
+        seekRequestMs = (seekRequestMs + error).coerceAtLeast(0)
+        seekIssuedAt = SystemClock.elapsedRealtime()
+        Timber.i("VLC seek to %d s landed at %d s, retrying with %d s", seekTargetMs / 1000, landed / 1000, seekRequestMs / 1000)
+        player.setTime(seekRequestMs, false)
     }
 
     override fun selectAudio(streamIndex: Int) {
@@ -169,7 +210,8 @@ class VlcEngine(context: Context, httpClient: OkHttpClient, private val device: 
         val source = request?.mediaSource ?: return
         val stream = source.stream(streamIndex)?.takeIf { it.type == MediaStreamType.AUDIO }
             ?: source.streams(MediaStreamType.AUDIO).let { all -> all.firstOrNull { it.isDefault } ?: all.firstOrNull() }
-        val encoding = Codecs.passthroughEncoding(stream?.codec, stream?.profile)
+        val codec = outputAudioCodec(stream?.codec)
+        val encoding = Codecs.passthroughEncoding(codec, stream?.profile.takeIf { codec == stream?.codec })
         val passthrough = encoding != null && encoding in device.passthroughEncodings
         val mode = if (passthrough) "encoded" else "stereo"
         if (mode == audioOutputMode) return
@@ -179,18 +221,38 @@ class VlcEngine(context: Context, httpClient: OkHttpClient, private val device: 
         } else {
             player.setAudioOutputDevice(mode)
         }
-        val label = if (passthrough) "passthrough ${Codecs.encodingName(encoding!!)}" else "PCM стерео (${stream?.codec ?: "?"})"
+        val label = if (passthrough) "passthrough ${Codecs.encodingName(encoding!!)}" else "PCM стерео (${codec ?: "?"})"
         Timber.i("VLC audio output: %s", label)
         _stats.update { it.copy(audioOutput = label) }
     }
 
+    /**
+     * The codec VLC will actually get. A transcode keeps the source audio only if it is in the URL's `AudioCodec`
+     * list (stream copy), otherwise the server encodes to the first one: TrueHD transcoded comes out as AAC, and
+     * forcing TrueHD passthrough for it would give silence.
+     */
+    private fun outputAudioCodec(sourceCodec: String?): String? {
+        val req = request ?: return sourceCodec
+        if (req.playMethod != PlayMethod.TRANSCODE) return sourceCodec
+        val allowed = req.url.toHttpUrlOrNull()?.queryParameter("AudioCodec")?.split(',')?.filter(String::isNotBlank)
+        if (allowed.isNullOrEmpty()) return sourceCodec
+        return allowed.firstOrNull { it.equals(sourceCodec, ignoreCase = true) } ?: allowed.first()
+    }
+
+    /**
+     * Subtitle asked for before its track existed: external files are slaves that libVLC opens after the main
+     * input, so at the first ESAdded only the embedded tracks are there. Retried on every later ESAdded.
+     */
+    private var pendingSubtitle: Int? = null
+
     override fun selectSubtitle(streamIndex: Int?) {
         val req = request ?: return
+        pendingSubtitle = null
         if (streamIndex == null) {
             player.setSpuTrack(-1)
             return
         }
-        val tracks = player.spuTracks?.filter { it.id >= 0 } ?: return
+        val tracks = player.spuTracks?.filter { it.id >= 0 }.orEmpty()
         val stream = req.mediaSource.mediaStreams.orEmpty().firstOrNull { it.index == streamIndex } ?: return
         val track = if (stream.isExternal || req.externalSubtitles.any { it.streamIndex == streamIndex }) {
             // Slaves are appended after the embedded tracks, in the order they were added.
@@ -200,7 +262,13 @@ class VlcEngine(context: Context, httpClient: OkHttpClient, private val device: 
         } else {
             req.mediaSource.embeddedOrdinal(streamIndex, MediaStreamType.SUBTITLE)?.let(tracks::getOrNull)
         }
-        track?.let { player.setSpuTrack(it.id) }
+        if (track == null) {
+            Timber.d("VLC subtitle %d not there yet (spu tracks: %s)", streamIndex, tracks.joinToString { "${it.id} ${it.name}" })
+            pendingSubtitle = streamIndex
+            return
+        }
+        Timber.i("VLC subtitle %d -> track %d «%s»", streamIndex, track.id, track.name)
+        player.setSpuTrack(track.id)
     }
 
     override fun setAudioDelay(delayMs: Long) {
@@ -248,8 +316,14 @@ class VlcEngine(context: Context, httpClient: OkHttpClient, private val device: 
                 _events.tryEmit(EngineEvent.FirstFrameRendered)
                 updateStats(force = true)
             }
-            MediaPlayer.Event.ESAdded, MediaPlayer.Event.ESSelected -> applyInitialTracks()
-            MediaPlayer.Event.TimeChanged -> updateStats(force = false)
+            MediaPlayer.Event.ESAdded, MediaPlayer.Event.ESSelected -> {
+                applyInitialTracks()
+                pendingSubtitle?.let(::selectSubtitle)
+            }
+            MediaPlayer.Event.TimeChanged -> {
+                checkSeek()
+                updateStats(force = false)
+            }
             MediaPlayer.Event.EncounteredError -> reportError(
                 EngineError(EngineError.Kind.DECODER, lastDialogError ?: "libVLC: EncounteredError"),
             )
@@ -271,6 +345,16 @@ class VlcEngine(context: Context, httpClient: OkHttpClient, private val device: 
         lastStatsAt = now
         val video = player.currentVideoTrack
         val s = media?.stats
+        // libVLC's decodedVideo counts frames twice and inputBitrate averages in the prefetch: use deltas instead.
+        val rates = s?.let { st ->
+            val prev = lastStatsSample
+            lastStatsSample = StatsSample(now, st.displayedPictures, st.readBytes)
+            prev?.takeIf { now > it.atMs && st.displayedPictures >= it.displayed }?.let { p ->
+                val sec = (now - p.atMs) / 1000.0
+                // readBytes is an Int that wraps after 2 GB; the Int difference is still right.
+                (st.displayedPictures - p.displayed) / sec to (st.readBytes - p.readBytes).toUInt().toDouble() * 8 / sec / 1e6
+            }
+        }
         _stats.update {
             it.copy(
                 videoFormat = video?.let { v ->
@@ -278,13 +362,17 @@ class VlcEngine(context: Context, httpClient: OkHttpClient, private val device: 
                 },
                 droppedFrames = s?.lostPictures ?: it.droppedFrames,
                 extra = it.extra + listOfNotNull(
-                    s?.let { st -> "кадры показано/декод." to "${st.displayedPictures}/${st.decodedVideo}" },
-                    s?.let { st -> "битрейт входа" to "%.1f Мбит/с".format(st.inputBitrate * 8000 / 1000) },
+                    s?.let { st -> "кадров показано" to "${st.displayedPictures}" },
+                    rates?.let { (fps, _) -> "кадров/с на экране" to "%.1f".format(fps) },
+                    rates?.let { (_, mbps) -> "чтение входа" to "%.1f Мбит/с".format(mbps) },
                     "прокси" to "${proxy.activeConnections} соед., %.1f МБ".format(proxy.bytesTransferred / 1048576.0),
                 ),
             )
         }
     }
+
+    private class StatsSample(val atMs: Long, val displayed: Int, val readBytes: Int)
+    private var lastStatsSample: StatsSample? = null
 
     private fun reportError(error: EngineError) {
         if (errorReported) return
@@ -294,13 +382,16 @@ class VlcEngine(context: Context, httpClient: OkHttpClient, private val device: 
     }
 
     private companion object {
+        const val SEEK_SETTLE_MS = 1500L
+        const val SEEK_TOLERANCE_MS = 5000L
+        const val MAX_SEEK_CORRECTIONS = 3
         val OPTIONS = arrayListOf(
             "--network-caching=3000",
             "--audio-time-stretch",
             "--no-sub-autodetect-file",
             "--deinterlace=-1",
             "--deinterlace-mode=yadif",
-            "-vv",
+            "-v",
         )
     }
 }

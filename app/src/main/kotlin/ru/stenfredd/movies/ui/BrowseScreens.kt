@@ -25,6 +25,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -54,6 +55,8 @@ fun HomeScreen(onOpen: (Screen) -> Unit, onLogout: () -> Unit, vm: BrowseViewMod
     var query by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val tourAvailable = remember { TourEntry.available(context) }
 
     LaunchedEffect(Unit) {
         runCatching {
@@ -70,6 +73,7 @@ fun HomeScreen(onOpen: (Screen) -> Unit, onLogout: () -> Unit, vm: BrowseViewMod
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 views.forEach { v -> Button(onClick = { onOpen(Screen.Items(v.id, v.name.orEmpty())) }) { Text(v.name.orEmpty()) } }
+                if (tourAvailable) Button(onClick = { onOpen(Screen.Tour()) }) { Text("Режим отладки") }
                 Button(onClick = {
                     scope.launch {
                         vm.session.logout()

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -32,6 +33,8 @@ import androidx.compose.ui.input.key.nativeKeyCode
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -45,7 +48,10 @@ import androidx.tv.material3.Text
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
 import org.jellyfin.sdk.model.api.MediaStreamType
+import org.jellyfin.sdk.model.api.PlayMethod
 import ru.stenfredd.movies.playback.api.Codecs
+import ru.stenfredd.movies.playback.api.DolbyVisionSwitchable
+import ru.stenfredd.movies.playback.api.EngineId
 import ru.stenfredd.movies.playback.api.EngineState
 import ru.stenfredd.movies.playback.api.VideoPathSwitchable
 import ru.stenfredd.movies.playback.core.DeviceCapabilitiesProbe
@@ -54,6 +60,8 @@ import ru.stenfredd.movies.playback.core.PlaybackSession
 import ru.stenfredd.movies.playback.core.PlaybackSessionFactory
 import ru.stenfredd.movies.playback.core.PlaybackUiState
 import ru.stenfredd.movies.playback.core.describe
+import ru.stenfredd.movies.playback.exo.ExoEngineProvider
+import ru.stenfredd.movies.playback.vlc.VlcEngineProvider
 import javax.inject.Inject
 
 @HiltViewModel
@@ -69,26 +77,36 @@ class PlayerViewModel @Inject constructor(
         release()
         return factory.create(viewModelScope).also {
             session = it
-            it.start(screen.itemId, screen.engine, screen.startPositionMs)
+            it.start(screen.itemId, screen.engine, screen.startPositionMs, screen.streams, screen.startFraction)
         }
     }
 
-    fun release() {
-        session?.release()
-        session = null
+    /** Releases [target] (default: the current session); a stale screen disposing late can't kill a newer session. */
+    fun release(target: PlaybackSession? = session) {
+        target?.release()
+        if (target === session) session = null
     }
 
     override fun onCleared() = release()
 }
 
+/** Debug tour context for [PlayerScreen]: ↑ cycles playback variants, ↓ goes to the next file. */
+class TourInfo(val number: Int, val total: Int, val title: String, val label: String, val onNextFile: () -> Unit)
+
+/** Variants ↑ steps through in the tour: auto first, then each engine/path, then a server transcode. */
+private val TOUR_VARIANTS = listOf(0) + Variant.entries.map { it.number } + TRANSCODE_KEY
+
 @Composable
-fun PlayerScreen(screen: Screen.Player, onExit: () -> Unit, vm: PlayerViewModel = hiltViewModel()) {
+fun PlayerScreen(screen: Screen.Player, onExit: () -> Unit, tour: TourInfo? = null, vm: PlayerViewModel = hiltViewModel()) {
     val session = remember(screen) { vm.start(screen) }
-    DisposableEffect(session) { onDispose { vm.release() } }
+    DisposableEffect(session) { onDispose { vm.release(session) } }
     val state by session.state.collectAsStateWithLifecycle()
 
-    var showDebug by remember { mutableStateOf(true) }
+    // ↑ cycles: variant badge only → badge + diagnostics → nothing.
+    var overlay by remember { mutableIntStateOf(0) }
+    var manual by remember { mutableStateOf(screen.engine != null) }
     var showMenu by remember { mutableStateOf(false) }
+    var tourStep by remember { mutableIntStateOf(0) }
     var barTick by remember { mutableIntStateOf(0) }
     var showBar by remember { mutableStateOf(true) }
     val rootFocus = remember { FocusRequester() }
@@ -116,7 +134,14 @@ fun PlayerScreen(screen: Screen.Player, onExit: () -> Unit, vm: PlayerViewModel 
                     AndroidKeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, AndroidKeyEvent.KEYCODE_SPACE -> session.togglePlayPause()
                     AndroidKeyEvent.KEYCODE_DPAD_LEFT, AndroidKeyEvent.KEYCODE_MEDIA_REWIND -> session.seekBy(-10_000)
                     AndroidKeyEvent.KEYCODE_DPAD_RIGHT, AndroidKeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> session.seekBy(30_000)
-                    AndroidKeyEvent.KEYCODE_DPAD_UP, AndroidKeyEvent.KEYCODE_INFO -> showDebug = !showDebug
+                    AndroidKeyEvent.KEYCODE_DPAD_UP if tour != null -> {
+                        tourStep = (tourStep + 1) % TOUR_VARIANTS.size
+                        manual = applyVariant(TOUR_VARIANTS[tourStep], session) ?: manual
+                    }
+                    AndroidKeyEvent.KEYCODE_DPAD_DOWN if tour != null -> tour.onNextFile()
+                    AndroidKeyEvent.KEYCODE_DPAD_UP, AndroidKeyEvent.KEYCODE_INFO -> overlay = (overlay + 1) % 3
+                    in AndroidKeyEvent.KEYCODE_0..AndroidKeyEvent.KEYCODE_9 ->
+                        manual = applyVariant(e.key.nativeKeyCode - AndroidKeyEvent.KEYCODE_0, session) ?: return@onPreviewKeyEvent false
                     AndroidKeyEvent.KEYCODE_DPAD_DOWN, AndroidKeyEvent.KEYCODE_MENU -> showMenu = true
                     else -> return@onPreviewKeyEvent false
                 }
@@ -130,16 +155,17 @@ fun PlayerScreen(screen: Screen.Player, onExit: () -> Unit, vm: PlayerViewModel 
             onRelease = { session.detachVideo() },
             modifier = Modifier.fillMaxSize(),
         )
-        if (showDebug) DebugPanel(state, vm, Modifier.align(Alignment.TopStart))
-        if (showBar || state.loading || state.error != null) StatusBar(state, Modifier.align(Alignment.BottomCenter))
+        if (overlay == 1) DebugPanel(state, vm, Modifier.align(Alignment.TopStart))
+        if (overlay < 2) VariantBadge(state, session, manual, tour, Modifier.align(Alignment.TopEnd).padding(24.dp))
+        if (showBar || state.loading || state.error != null) StatusBar(state, tour != null, Modifier.align(Alignment.BottomCenter))
         if (showMenu) {
-            Menu(state, session, vm, Modifier.align(Alignment.CenterEnd).focusRequester(menuFocus)) { showMenu = false }
+            Menu(state, session, vm, Modifier.align(Alignment.CenterEnd).focusRequester(menuFocus), onManual = { manual = it }) { showMenu = false }
         }
     }
 }
 
 @Composable
-private fun StatusBar(state: PlaybackUiState, modifier: Modifier) {
+private fun StatusBar(state: PlaybackUiState, touring: Boolean, modifier: Modifier) {
     Column(
         modifier.fillMaxWidth().background(Color(0xAA000000)).padding(24.dp, 12.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -153,7 +179,95 @@ private fun StatusBar(state: PlaybackUiState, modifier: Modifier) {
         }
         Text("$phase  ${state.title}   ${formatTime(state.positionMs)} / ${formatTime(state.durationMs)}")
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        Text("OK — пауза · ←/→ — перемотка · ↑ — диагностика · ↓ — дорожки и движок", fontSize = 12.sp, color = Color.LightGray)
+        val hint = if (touring) {
+            "OK — пауза · ←/→ — перемотка · ↑ — следующий режим · ↓ — следующий файл · Меню — дорожки · Info — диагностика"
+        } else {
+            "OK — пауза · ←/→ — перемотка · ↑ — значок/диагностика · ↓ — варианты, дорожки, движок"
+        }
+        Text(hint, fontSize = 12.sp, color = Color.LightGray)
+    }
+}
+
+/**
+ * Numbered playback variants for A/B testing on the TV: the badge in the corner shows the number, so the tester can
+ * note "file — variant — impression". 0 returns to the automatic choice. Picked from the ↓ menu or with digit keys.
+ */
+private enum class Variant(
+    val number: Int,
+    val label: String,
+    val engine: EngineId,
+    val path: VideoPathSwitchable.Mode? = null,
+    /** For Exo: decode Dolby Vision files through the DV decoder instead of the base layer. */
+    val dolbyVision: Boolean = false,
+) {
+    EXO_PLANE(1, "Exo · видеослой ТВ", ExoEngineProvider.ID, VideoPathSwitchable.Mode.VIDEO_PLANE),
+    EXO_GPU(2, "Exo · через GPU", ExoEngineProvider.ID, VideoPathSwitchable.Mode.GPU),
+    VLC(3, "VLC", VlcEngineProvider.ID),
+    EXO_DV(4, "Exo · DV-декодер", ExoEngineProvider.ID, VideoPathSwitchable.Mode.VIDEO_PLANE, dolbyVision = true),
+}
+
+private const val TRANSCODE_KEY = 9
+
+/** Returns the new "manual" flag, or null if [number] is not a variant. */
+private fun applyVariant(number: Int, session: PlaybackSession): Boolean? {
+    when (number) {
+        0 -> {
+            session.switchToAuto()
+            return false
+        }
+        TRANSCODE_KEY -> session.forceTranscode()
+        else -> {
+            val v = Variant.entries.firstOrNull { it.number == number } ?: return null
+            val current = session.activeEngine
+            val sameDecoder = (current as? DolbyVisionSwitchable)?.useDolbyVisionDecoder?.let { it == v.dolbyVision } ?: true
+            if (current?.id == v.engine && current is VideoPathSwitchable && v.path != null && sameDecoder) current.setVideoPathMode(v.path)
+            else session.switchEngine(v.engine, videoPath = v.path, dolbyVision = v.dolbyVision.takeIf { v.engine == ExoEngineProvider.ID })
+        }
+    }
+    return true
+}
+
+/** The variant actually playing, e.g. "2" (Exo through GPU) or "3Т" (VLC on a server transcode). */
+private fun currentVariantCode(state: PlaybackUiState, session: PlaybackSession): String {
+    val engine = session.activeEngine
+    val gpu = (engine as? VideoPathSwitchable)?.usingGpuPath
+    val dv = (engine as? DolbyVisionSwitchable)?.useDolbyVisionDecoder == true
+    val v = Variant.entries.firstOrNull {
+        it.engine == state.engine && it.dolbyVision == dv && (it.path == null || gpu == (it.path == VideoPathSwitchable.Mode.GPU))
+    }
+    val transcode = state.playMethod != null && state.playMethod != PlayMethod.DIRECT_PLAY
+    return (v?.number?.toString() ?: "?") + if (transcode) "Т" else ""
+}
+
+@Composable
+private fun VariantBadge(state: PlaybackUiState, session: PlaybackSession, manual: Boolean, tour: TourInfo?, modifier: Modifier) {
+    val engine = session.activeEngine
+    val path = (engine as? VideoPathSwitchable)?.let { if (it.usingGpuPath) "GPU" else "видеослой" }
+        ?.plus(if ((engine as? DolbyVisionSwitchable)?.useDolbyVisionDecoder == true) " · DV" else "")
+    val transcode = state.playMethod != null && state.playMethod != PlayMethod.DIRECT_PLAY
+    val head = listOfNotNull(state.engine?.value?.uppercase(), path, if (transcode) "ТРАНСКОД" else null).joinToString(" · ")
+    val mode = when {
+        manual -> "вручную"
+        state.engineReason.startsWith("fallback") || "не умеет" in state.engineReason || "все движки" in state.engineReason -> "авто, запасной"
+        else -> "авто"
+    }
+    Column(
+        modifier.background(Color(0xC0000000)).padding(16.dp, 10.dp),
+        horizontalAlignment = Alignment.End,
+    ) {
+        tour?.let {
+            Text("Отладка: файл ${it.number} из ${it.total}", fontSize = 14.sp, color = Color(0xFF80CBC4))
+        }
+        Text(
+            "${currentVariantCode(state, session)}  $head",
+            fontSize = 26.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, color = Color(0xFFFFD54F),
+        )
+        Text(
+            "$mode · ${formatTime(state.positionMs)} · пропуски ${state.stats.droppedFrames}",
+            fontSize = 14.sp, fontFamily = FontFamily.Monospace, color = Color.White,
+        )
+        Text(tour?.title ?: state.title, fontSize = if (tour != null) 16.sp else 12.sp, color = Color.LightGray)
+        tour?.let { Text(it.label, fontSize = 14.sp, color = Color.White, modifier = Modifier.widthIn(max = 900.dp)) }
     }
 }
 
@@ -181,13 +295,27 @@ private fun DebugPanel(state: PlaybackUiState, vm: PlayerViewModel, modifier: Mo
 }
 
 @Composable
-private fun Menu(state: PlaybackUiState, session: PlaybackSession, vm: PlayerViewModel, modifier: Modifier, close: () -> Unit) {
+private fun Menu(
+    state: PlaybackUiState,
+    session: PlaybackSession,
+    vm: PlayerViewModel,
+    modifier: Modifier,
+    onManual: (Boolean) -> Unit,
+    close: () -> Unit,
+) {
     val source = state.source ?: return
     fun mark(selected: Boolean) = if (selected) "● " else "   "
     LazyColumn(
         modifier.fillMaxHeight().width(520.dp).background(Color(0xE0101010)).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        item { Text("Вариант (сейчас ${currentVariantCode(state, session)})", style = MaterialTheme.typography.titleMedium) }
+        val variants = listOf(0 to "Авто") + Variant.entries.map { it.number to it.label } + listOf(TRANSCODE_KEY to "Транскод сервером (текущим движком)")
+        variants.forEach { (number, label) ->
+            item {
+                Button(onClick = { applyVariant(number, session)?.let(onManual); close() }) { Text("$number  $label") }
+            }
+        }
         item { Text("Аудио", style = MaterialTheme.typography.titleMedium) }
         source.mediaStreams.orEmpty().filter { it.type == MediaStreamType.AUDIO }.forEach { s ->
             item {
@@ -209,9 +337,9 @@ private fun Menu(state: PlaybackUiState, session: PlaybackSession, vm: PlayerVie
         }
         item { Text("Движок", style = MaterialTheme.typography.titleMedium) }
         vm.selector.engines.forEach { p ->
-            item { Button(onClick = { session.switchEngine(p.id); close() }) { Text(mark(state.engine == p.id) + p.displayName) } }
+            item { Button(onClick = { session.switchEngine(p.id); onManual(true); close() }) { Text(mark(state.engine == p.id) + p.displayName) } }
         }
-        item { Button(onClick = { session.forceTranscode(); close() }) { Text("   Транскод на сервере") } }
+        item { Button(onClick = { session.forceTranscode(); onManual(true); close() }) { Text("   Транскод на сервере") } }
         (session.activeEngine as? VideoPathSwitchable)?.let { engine ->
             item { Text("Вывод видео", style = MaterialTheme.typography.titleMedium) }
             val modes = listOf(
@@ -220,7 +348,11 @@ private fun Menu(state: PlaybackUiState, session: PlaybackSession, vm: PlayerVie
                 VideoPathSwitchable.Mode.GPU to "Через GPU, как VLC (без HDR, до 1080p)",
             )
             modes.forEach { (mode, label) ->
-                item { Button(onClick = { engine.setVideoPathMode(mode); close() }) { Text(mark(engine.videoPathMode == mode) + label) } }
+                item {
+                    Button(onClick = { engine.setVideoPathMode(mode); onManual(mode != VideoPathSwitchable.Mode.AUTO); close() }) {
+                        Text(mark(engine.videoPathMode == mode) + label)
+                    }
+                }
             }
         }
     }

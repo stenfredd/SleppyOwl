@@ -2,7 +2,7 @@
 # Helpers for driving the test TV over adb. Usage: source tools/tv/env.sh
 # TV_ADB: адрес из «Беспроводной отладки» (порт меняется после перезагрузки ТВ).
 export JAVA_HOME=${JAVA_HOME:-$HOME/.jdks/jdk-21.0.12.1+1}
-TV_ADB=${TV_ADB:-192.168.1.20:34277}
+TV_ADB=${TV_ADB:-192.168.1.20:5555}
 A="$HOME/Android/Sdk/platform-tools/adb -s $TV_ADB"
 OUT=${OUT:-/tmp/movies-tv}; mkdir -p "$OUT"
 k() { for x in "$@"; do $A shell input keyevent "$x"; sleep 0.7; done; }

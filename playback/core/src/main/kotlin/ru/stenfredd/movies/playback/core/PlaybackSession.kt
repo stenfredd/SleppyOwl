@@ -1,5 +1,7 @@
 package ru.stenfredd.movies.playback.core
 
+import android.net.Uri
+import android.os.SystemClock
 import android.widget.FrameLayout
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -30,6 +32,7 @@ import org.jellyfin.sdk.model.api.PlaybackStopInfo
 import org.jellyfin.sdk.model.api.RepeatMode
 import org.jellyfin.sdk.model.api.SubtitleDeliveryMethod
 import ru.stenfredd.movies.core.jellyfin.JellyfinSession
+import ru.stenfredd.movies.playback.api.DolbyVisionSwitchable
 import ru.stenfredd.movies.playback.api.EngineError
 import ru.stenfredd.movies.playback.api.EngineEvent
 import ru.stenfredd.movies.playback.api.EngineId
@@ -41,6 +44,7 @@ import ru.stenfredd.movies.playback.api.LoadRequest
 import ru.stenfredd.movies.playback.api.PlaybackEngine
 import ru.stenfredd.movies.playback.api.StreamSelection
 import ru.stenfredd.movies.playback.api.Verdict
+import ru.stenfredd.movies.playback.api.VideoPathSwitchable
 import ru.stenfredd.movies.playback.api.videoStream
 import timber.log.Timber
 import java.util.UUID
@@ -105,6 +109,13 @@ class PlaybackSession(
     private var ranking: List<RankedEngine> = emptyList()
     private val tried = mutableSetOf<EngineId>()
     private var transcodeTried = false
+    private var nextVideoPath: VideoPathSwitchable.Mode? = null
+    private var nextDolbyVision: Boolean? = null
+    /** Set by [switchToAuto]: the next engine keeps its own default decoder choice instead of the old engine's. */
+    private var defaultDolbyVision = false
+    /** The user picked the engine: the stall watchdog only logs instead of switching away from their choice. */
+    private var manualEngine = false
+    private var lastSeekAt = 0L
 
     private var playSessionId: String? = null
     private var playMethod: PlayMethod = PlayMethod.DIRECT_PLAY
@@ -121,14 +132,16 @@ class PlaybackSession(
         container = null
     }
 
-    fun start(itemId: UUID, forcedEngine: EngineId?, startPositionMs: Long) {
+    fun start(itemId: UUID, forcedEngine: EngineId?, startPositionMs: Long, streams: StreamSelection? = null, startFraction: Double? = null) {
         scope.launch {
             runCatching {
                 val user = session.requireSession()
+                session.refreshLocalAddress()
                 withContext(Dispatchers.Default) { probe.capabilities }
                 item = session.call { libraryApi.getItem(itemId, user.userId).content }
                 source = item.mediaSources?.firstOrNull() ?: error("У элемента нет медиаисточников")
-                selection = StreamSelection(source.defaultAudioStreamIndex, source.defaultSubtitleStreamIndex)
+                selection = streams ?: StreamSelection(source.defaultAudioStreamIndex, source.defaultSubtitleStreamIndex)
+                val startMs = startFraction?.let { ((item.runTimeTicks ?: 0) / TICKS_PER_MS * it).toLong() } ?: startPositionMs
                 ranking = selector.rank(source, selection, device)
                 _state.update {
                     it.copy(
@@ -141,7 +154,8 @@ class PlaybackSession(
                 log("Ранжирование: " + ranking.joinToString { "${it.provider.id}=${it.verdict.describe()}" })
                 val first = forcedEngine?.let(selector::provider) ?: ranking.first().provider
                 val reason = if (forcedEngine != null) "выбран вручную" else ranking.first().verdict.describe()
-                launchEngine(first, startPositionMs, forceTranscode = false, reason = reason)
+                manualEngine = forcedEngine != null
+                launchEngine(first, startMs, forceTranscode = false, reason = reason)
             }.onFailure { fail("Не удалось начать воспроизведение", it) }
         }
     }
@@ -152,7 +166,7 @@ class PlaybackSession(
         reportProgressAsync()
     }
 
-    fun seekBy(deltaMs: Long) = seekTo((engine?.positionMs ?: 0) + deltaMs)
+    fun seekBy(deltaMs: Long) = seekTo(positionMs() + deltaMs)
 
     fun seekTo(positionMs: Long) {
         val e = engine ?: return
@@ -169,34 +183,74 @@ class PlaybackSession(
                 return
             }
         }
+        lastSeekAt = SystemClock.elapsedRealtime()
         e.seekTo(target)
         reportProgressAsync()
     }
 
     fun selectAudio(streamIndex: Int) {
         selection = selection.copy(audioStreamIndex = streamIndex)
-        _state.update { it.copy(selection = selection) }
-        if (playMethod == PlayMethod.DIRECT_PLAY) engine?.selectAudio(streamIndex) else restartCurrent("смена аудио")
+        onSelectionChanged("смена аудио") { it.selectAudio(streamIndex) }
     }
 
     fun selectSubtitle(streamIndex: Int?) {
         selection = selection.copy(subtitleStreamIndex = streamIndex)
-        _state.update { it.copy(selection = selection) }
-        if (playMethod == PlayMethod.DIRECT_PLAY) engine?.selectSubtitle(streamIndex) else restartCurrent("смена субтитров")
+        onSelectionChanged("смена субтитров") { it.selectSubtitle(streamIndex) }
     }
 
-    fun switchEngine(id: EngineId) {
-        val position = engine?.positionMs ?: 0
+    /**
+     * Tracks change what each engine can do (ASS subtitles, TrueHD audio, ...): re-rank, and in automatic mode move
+     * to an engine that is now strictly better. Engines that already failed in this session are not retried.
+     */
+    private fun onSelectionChanged(what: String, applyInPlace: (PlaybackEngine) -> Unit) {
+        ranking = selector.rank(source, selection, device)
+        _state.update { it.copy(selection = selection, ranking = ranking.map { r -> r.provider.id to r.verdict }) }
+        val e = engine ?: return
+        val current = ranking.firstOrNull { it.provider.id == e.id }
+        val best = ranking.firstOrNull { it.provider.id == e.id || it.provider.id !in tried }
+        if (!manualEngine && current != null && best != null && best.provider.id != e.id &&
+            selector.score(best.verdict) < selector.score(current.verdict)
+        ) {
+            val position = positionMs()
+            log("$what: ${best.provider.id} теперь подходит лучше (${best.verdict.describe()})")
+            scope.launch { launchEngine(best.provider, position, forceTranscode = false, reason = "$what: ${best.verdict.describe()}") }
+            return
+        }
+        if (playMethod == PlayMethod.DIRECT_PLAY) applyInPlace(e) else restartCurrent(what)
+    }
+
+    /** [videoPath] is applied to the new engine before it loads (if it is [VideoPathSwitchable]). */
+    fun switchEngine(id: EngineId, transcode: Boolean = false, videoPath: VideoPathSwitchable.Mode? = null, dolbyVision: Boolean? = null) {
+        val position = positionMs()
         scope.launch {
             tried.clear()
             transcodeTried = false
-            launchEngine(selector.provider(id), position, forceTranscode = false, reason = "выбран вручную")
+            nextVideoPath = videoPath
+            nextDolbyVision = dolbyVision
+            manualEngine = true
+            launchEngine(selector.provider(id), position, forceTranscode = transcode, reason = if (transcode) "транскод вручную" else "выбран вручную")
+        }
+    }
+
+    /** Back to what the selector would pick for this file. */
+    fun switchToAuto() {
+        val first = ranking.firstOrNull() ?: return
+        val position = positionMs()
+        scope.launch {
+            tried.clear()
+            transcodeTried = false
+            nextVideoPath = VideoPathSwitchable.Mode.AUTO
+            nextDolbyVision = null
+            defaultDolbyVision = true
+            manualEngine = false
+            launchEngine(first.provider, position, forceTranscode = false, reason = first.verdict.describe())
         }
     }
 
     fun forceTranscode() {
-        val position = engine?.positionMs ?: 0
+        val position = positionMs()
         val provider = engine?.id?.let(selector::provider) ?: return
+        manualEngine = true
         scope.launch { launchEngine(provider, position, forceTranscode = true, reason = "транскод вручную") }
     }
 
@@ -211,7 +265,7 @@ class PlaybackSession(
 
     private fun restartCurrent(why: String) {
         val provider = engine?.id?.let(selector::provider) ?: return
-        val position = engine?.positionMs ?: 0
+        val position = positionMs()
         scope.launch { launchEngine(provider, position, forceTranscode = playMethod != PlayMethod.DIRECT_PLAY, reason = why) }
     }
 
@@ -220,10 +274,13 @@ class PlaybackSession(
         engineJobs.forEach(Job::cancel)
         engineJobs.clear()
         engine?.let { old ->
-            reportStop(old.positionMs, failed = false)
+            if (nextVideoPath == null) nextVideoPath = (old as? VideoPathSwitchable)?.videoPathMode
+            if (nextDolbyVision == null && !defaultDolbyVision) nextDolbyVision = (old as? DolbyVisionSwitchable)?.useDolbyVisionDecoder
+            reportStop(positionMs(), failed = false)
             old.release()
         }
         engine = null
+        launchPositionMs = startMs
         tried += provider.id
         if (forceTranscode) transcodeTried = true
         _state.update { it.copy(loading = true, error = null, engine = provider.id, engineReason = reason) }
@@ -278,13 +335,19 @@ class PlaybackSession(
         }
         val transcodeReasons = ms.transcodingUrl?.let { Regex("TranscodeReasons=([^&]+)").find(it)?.groupValues?.get(1) }
             ?.let { java.net.URLDecoder.decode(it, "UTF-8") }
-        log("${provider.id}: $playMethod" + (transcodeReasons?.let { " (причины транскода: $it)" } ?: ""))
+        val host = Uri.parse(url).let { "${it.scheme}://${it.authority}" }
+        log("${provider.id}: $playMethod через $host" + (transcodeReasons?.let { " (причины транскода: $it)" } ?: ""))
 
         val external = ms.mediaStreams.orEmpty()
             .filter { it.type == MediaStreamType.SUBTITLE && it.deliveryMethod == SubtitleDeliveryMethod.EXTERNAL && it.deliveryUrl != null }
             .map { ExternalSubtitle(it.index, session.authorizedUrl(it.deliveryUrl!!), it.codec, it.language, it.displayTitle) }
 
         val newEngine = provider.create(device)
+        nextVideoPath?.let { (newEngine as? VideoPathSwitchable)?.setVideoPathMode(it) }
+        nextVideoPath = null
+        nextDolbyVision?.let { (newEngine as? DolbyVisionSwitchable)?.useDolbyVisionDecoder = it }
+        nextDolbyVision = null
+        defaultDolbyVision = false
         engine = newEngine
         firstFrameSeen = false
         container?.let(newEngine::attachVideo)
@@ -293,6 +356,7 @@ class PlaybackSession(
         engineJobs += scope.launch { newEngine.stats.collect { s -> _state.update { it.copy(stats = s) } } }
         engineJobs += scope.launch { tickLoop(gen) }
         engineJobs += scope.launch { firstFrameWatchdog(gen) }
+        engineJobs += scope.launch { stallWatchdog(gen) }
 
         _state.update { it.copy(playMethod = playMethod, transcodeReasons = transcodeReasons) }
         newEngine.load(
@@ -311,12 +375,70 @@ class PlaybackSession(
     }
 
     private var firstFrameSeen = false
+    /** Where the current engine was asked to start; see [positionMs]. */
+    private var launchPositionMs = 0L
+
+    /**
+     * Playback position for handing over to another engine. Until the engine shows its first frame its own position
+     * is meaningless (0 or -1, or relative to a transcode), so the position it was started at is used: otherwise a
+     * quick variant switch (or a fallback from an engine that never got going) restarts the film from the beginning.
+     */
+    private fun positionMs(): Long {
+        val e = engine
+        return if (e == null || !firstFrameSeen) launchPositionMs else e.positionMs
+    }
 
     private suspend fun firstFrameWatchdog(gen: Int) {
         if (source.videoStream == null) return
         delay(FIRST_FRAME_TIMEOUT_MS)
         if (gen == generation && !firstFrameSeen) {
             onEngineEvent(gen, EngineEvent.Error(EngineError(EngineError.Kind.NO_VIDEO_OUTPUT, "Нет первого кадра за ${FIRST_FRAME_TIMEOUT_MS / 1000} с")))
+        }
+    }
+
+    /**
+     * Catches what the first-frame watchdog can't: an engine that started fine but then hangs (reports READY and
+     * playing, position stands still) or plays so badly it is useless (e.g. Exo on AC3-in-AVI with broken audio
+     * timing: ~40% of frames dropped). Buffering alone is not treated as a stall: that is usually the network, and
+     * another engine would not fetch faster.
+     */
+    private suspend fun stallWatchdog(gen: Int) {
+        val video = source.videoStream ?: return
+        val fps = (video.realFrameRate ?: video.averageFrameRate ?: 25f).coerceIn(10f, 120f)
+        var lastPosition = -1L
+        var stuckMs = 0L
+        val drops = ArrayDeque<Int>()
+        while (scope.isActive && gen == generation) {
+            delay(STALL_TICK_MS)
+            val e = engine ?: return
+            val s = e.state.value
+            val settled = firstFrameSeen && SystemClock.elapsedRealtime() - lastSeekAt > SEEK_GRACE_MS
+            if (!s.playWhenReady || s.phase == EngineState.Phase.ENDED || !settled) {
+                lastPosition = -1
+                stuckMs = 0
+                drops.clear()
+                continue
+            }
+            val position = e.positionMs
+            stuckMs = if (s.phase == EngineState.Phase.READY && lastPosition >= 0 && position <= lastPosition) stuckMs + STALL_TICK_MS else 0
+            lastPosition = position
+            drops.addLast(_state.value.stats.droppedFrames)
+            if (drops.size > DROP_WINDOW_TICKS + 1) drops.removeFirst()
+            val dropped = if (drops.size > DROP_WINDOW_TICKS) drops.last() - drops.first() else 0
+            val windowS = DROP_WINDOW_TICKS * STALL_TICK_MS / 1000
+            val reason = when {
+                stuckMs >= STALL_TIMEOUT_MS -> "играет, но позиция стоит ${stuckMs / 1000} с"
+                dropped > fps * windowS * MAX_DROPPED_SHARE -> "пропущено $dropped кадров за $windowS с"
+                else -> continue
+            }
+            if (manualEngine) {
+                log("Застой ${e.id}: $reason (движок выбран вручную, не переключаю)")
+                stuckMs = 0
+                drops.clear()
+                continue
+            }
+            onEngineEvent(gen, EngineEvent.Error(EngineError(EngineError.Kind.STALLED, "Застой: $reason")))
+            return
         }
     }
 
@@ -329,7 +451,7 @@ class PlaybackSession(
             }
             is EngineEvent.Error -> {
                 val failedEngine = engine?.id
-                val position = engine?.positionMs ?: 0
+                val position = positionMs()
                 log("Ошибка $failedEngine: ${event.error.kind} — ${event.error.message}")
                 Timber.w(event.error.cause, "Engine %s failed: %s", failedEngine, event.error.message)
                 val next = if (event.error.worthFallback) {
@@ -354,7 +476,7 @@ class PlaybackSession(
         var sinceReport = 0L
         while (scope.isActive && gen == generation) {
             val e = engine ?: return
-            _state.update { it.copy(positionMs = e.positionMs, durationMs = e.durationMs) }
+            _state.update { it.copy(positionMs = positionMs(), durationMs = e.durationMs) }
             delay(TICK_MS)
             sinceReport += TICK_MS
             if (sinceReport >= PROGRESS_INTERVAL_MS) {
@@ -468,5 +590,11 @@ class PlaybackSession(
         const val TICK_MS = 500L
         const val PROGRESS_INTERVAL_MS = 10_000L
         const val FIRST_FRAME_TIMEOUT_MS = 60_000L
+        const val STALL_TICK_MS = 1000L
+        const val STALL_TIMEOUT_MS = 8_000L
+        /** Seeking rebuffers and drops a few frames: give the engine time to settle before judging it. */
+        const val SEEK_GRACE_MS = 5_000L
+        const val DROP_WINDOW_TICKS = 10
+        const val MAX_DROPPED_SHARE = 0.25
     }
 }

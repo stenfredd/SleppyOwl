@@ -40,7 +40,10 @@ enum class Loss(val weight: Int, val label: String) {
     SOFTWARE_DECODE(15, "программное декодирование"),
     DV_TO_BASE_LAYER(30, "Dolby Vision → базовый слой"),
     HDR_UNVERIFIED(25, "HDR-вывод не проверен"),
-    ASS_SIMPLIFIED(20, "ASS упрощён"),
+    /** Outweighs [SOFTWARE_DECODE]: playback stutters and stalls, not just a quality loss. */
+    BROKEN_AUDIO_TIMING(30, "сбивается синхронизация звука"),
     /** Small: TV SoCs usually deinterlace in the display pipeline after the hardware decoder. */
     NO_DEINTERLACE(5, "без деинтерлейса в плеере"),
+    /** Outweighs [SOFTWARE_DECODE]: visible combing in motion, not a subtle quality loss. */
+    DVD_COMBING(30, "гребёнка на чересстрочном DVD"),
 }

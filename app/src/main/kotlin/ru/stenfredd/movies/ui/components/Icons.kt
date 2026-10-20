@@ -41,6 +41,11 @@ enum class AppIcon(val pathData: String, val stroked: Boolean = true) {
     Next("M5 5v14l10-7zM16 5h3v14h-3z", stroked = false),
     ChevronDown("M6 9l6 6 6-6"),
     ChevronRight("M9 6l6 6-6 6"),
+    Settings("M4 7h9M17 7h3M4 17h3M11 17h9M15 4.5v5M9 14.5v5"),
+    /** A movie library on the rail. */
+    Film("M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM8 4v16M16 4v16M4 9h4M4 15h4M16 9h4M16 15h4"),
+    /** A series library on the rail. */
+    Tv("M5 7h14a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1zM8.5 3l3.5 4 3.5-4"),
     ;
 
     internal val path: Path by lazy { PathParser().parsePathString(pathData).toPath() }

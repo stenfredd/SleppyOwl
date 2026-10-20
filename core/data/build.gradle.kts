@@ -18,6 +18,7 @@ android {
 dependencies {
     api(project(":core:jellyfin"))
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.androidx.datastore.preferences)
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
     implementation(libs.timber)

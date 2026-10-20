@@ -11,7 +11,9 @@ import ru.stenfredd.movies.core.data.model.ItemKind
 import ru.stenfredd.movies.core.data.model.ItemQuery
 import ru.stenfredd.movies.core.data.model.ItemSort
 import ru.stenfredd.movies.core.data.model.ItemSummary
+import ru.stenfredd.movies.core.data.model.LibraryView
 import ru.stenfredd.movies.core.data.model.Page
+import ru.stenfredd.movies.core.data.model.itemKinds
 import ru.stenfredd.movies.core.jellyfin.JellyfinSession
 import java.util.UUID
 import javax.inject.Inject
@@ -60,8 +62,13 @@ class WatchRepository @Inject constructor(
         withTotal = false,
     )
 
-    suspend fun favorites(start: Int, limit: Int, kinds: Set<ItemKind> = setOf(ItemKind.Movie, ItemKind.Series)): Page<ItemSummary> =
-        library.items(ItemQuery(kinds = kinds, favoritesOnly = true, sort = ItemSort.Name), start, limit)
+    /** Favourite movies or series of library [view], by name. All of them: favourites are a short list. */
+    suspend fun favorites(view: LibraryView): List<ItemSummary> = library.items(
+        ItemQuery(parentId = view.id, kinds = view.itemKinds, favoritesOnly = true, sort = ItemSort.Name),
+        0,
+        FAVORITES_LIMIT,
+        withTotal = false,
+    ).items
 
     suspend fun setPlayed(id: UUID, played: Boolean) {
         session.call { if (played) userDataApi.markPlayedItem(itemId = id, userId = userId) else userDataApi.markUnplayedItem(itemId = id, userId = userId) }
@@ -71,5 +78,9 @@ class WatchRepository @Inject constructor(
     suspend fun setFavorite(id: UUID, favorite: Boolean) {
         session.call { if (favorite) userDataApi.markFavoriteItem(itemId = id, userId = userId) else userDataApi.unmarkFavoriteItem(itemId = id, userId = userId) }
         session.notifyUserDataChanged(id)
+    }
+
+    private companion object {
+        const val FAVORITES_LIMIT = 500
     }
 }

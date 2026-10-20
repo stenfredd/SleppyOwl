@@ -95,9 +95,9 @@ fun CircleButton(icon: AppIcon, onClick: () -> Unit, modifier: Modifier = Modifi
     }
 }
 
-/** Option chip: "Русский  TrueHD Atmos 7.1"; selected = violet, focused = light fill. */
+/** Option chip: "Русский  TrueHD Atmos 7.1" (or "● Жёлтый" with a [swatch]); selected = violet, focused = light fill. */
 @Composable
-fun Chip(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, detail: String? = null) {
+fun Chip(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, detail: String? = null, swatch: Color? = null) {
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(14.5.dp)
     val textColor = when {
@@ -124,6 +124,7 @@ fun Chip(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifi
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
+        swatch?.let { Box(Modifier.size(9.dp).background(it, CircleShape).border(0.5.dp, Color(0x4D000000), CircleShape)) }
         BasicText(label, Modifier.widthIn(max = 190.dp), style = AppType.Button.copy(fontSize = 11.sp, fontWeight = FontWeight.Normal, color = textColor), maxLines = 1, overflow = TextOverflow.Ellipsis)
         detail?.let { BasicText(it, style = AppType.MonoCaption.copy(fontSize = 8.5.sp, color = textColor.copy(alpha = 0.65f)), maxLines = 1) }
     }

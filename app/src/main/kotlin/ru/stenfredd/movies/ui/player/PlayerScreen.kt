@@ -28,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -38,6 +39,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.nativeKeyCode
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -170,6 +172,7 @@ private fun PlayerUi(
     val season by vm.season.collectAsStateWithLifecycle()
     val style by vm.subtitleStyle.collectAsStateWithLifecycle()
     val ui = remember { PlayerUiState() }
+    val focusManager = LocalFocusManager.current
     val media = remember(state.source) { state.source?.toMediaInfo() }
     val tracks = remember(media) { PlayerTracks.of(media) }
     val playing = state.engineState.playWhenReady
@@ -269,6 +272,11 @@ private fun PlayerUi(
             AndroidKeyEvent.KEYCODE_MEDIA_REWIND -> scrub(-1, repeat).also { if (!ui.osd) showOsd(ui.timeline) }
             AndroidKeyEvent.KEYCODE_MEDIA_NEXT -> season?.next?.let(vm::playEpisode)
             AndroidKeyEvent.KEYCODE_MEDIA_PREVIOUS -> season?.previous?.let(vm::playEpisode)
+            // ↑ from the topmost control (the timeline) hides the controls; a held key stops there instead of showing them again.
+            AndroidKeyEvent.KEYCODE_DPAD_UP if ui.osd && !ui.drawer && ui.panel == null && !ui.debugMenu && state.error == null -> {
+                if (!focusManager.moveFocus(FocusDirection.Up) && repeat == 0) hideOsd()
+            }
+            AndroidKeyEvent.KEYCODE_DPAD_UP if !ui.osd && repeat > 0 && tour == null && next == null -> Unit
             else -> return onNavigationKey(code, repeat, ui, session, tour, ::scrub, ::showOsd, ::openDrawer, promptShown = next != null)
         }
         return true

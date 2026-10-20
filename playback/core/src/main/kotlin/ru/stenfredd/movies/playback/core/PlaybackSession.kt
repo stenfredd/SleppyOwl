@@ -127,12 +127,16 @@ class PlaybackSession(
     private var transcodeTried = false
     private var nextVideoPath: VideoPathSwitchable.Mode? = null
     private var nextDolbyVision: Boolean? = null
-    /** Set by [switchToAuto]: the next engine keeps its own default decoder choice instead of the old engine's. */
+    /** Set by [switchToAuto]: the next engine gets the default decoder choice instead of the old engine's. */
     private var defaultDolbyVision = false
+    /** Settings screen defaults, read at [start]. */
+    private var defaults = PlaybackDefaults()
     /** The user picked the engine: the stall watchdog only logs instead of switching away from their choice. */
     private var manualEngine = false
     private var lastSeekAt = 0L
     private var maxBitrate: Int? = null
+    /** [setMaxBitrate] was called before [start] (quality kept from the previous episode): the default doesn't apply. */
+    private var maxBitrateSet = false
     private var subtitleStyle = SubtitleStyle()
     private var subtitleLift = 0f
 
@@ -160,6 +164,11 @@ class PlaybackSession(
                 item = session.call { libraryApi.getItem(itemId, user.userId).content }
                 source = item.mediaSources?.firstOrNull() ?: error("У элемента нет медиаисточников")
                 subtitleStyle = prefs.subtitleStyle()
+                defaults = prefs.defaults()
+                if (!maxBitrateSet) {
+                    maxBitrate = defaults.maxBitrate
+                    _state.update { it.copy(maxBitrate = maxBitrate) }
+                }
                 selection = streams ?: rememberedSelection() ?: StreamSelection(source.defaultAudioStreamIndex, source.defaultSubtitleStreamIndex)
                 val startMs = startFraction?.let { ((item.runTimeTicks ?: 0) / TICKS_PER_MS * it).toLong() } ?: startPositionMs
                 ranking = selector.rank(source, selection, device)
@@ -250,6 +259,7 @@ class PlaybackSession(
 
     /** Quality: null = original (direct play where possible), else the server transcodes down to [bitrate]. */
     fun setMaxBitrate(bitrate: Int?) {
+        maxBitrateSet = true
         if (bitrate == maxBitrate) return
         maxBitrate = bitrate
         _state.update { it.copy(maxBitrate = bitrate) }
@@ -317,7 +327,7 @@ class PlaybackSession(
         scope.launch {
             tried.clear()
             transcodeTried = false
-            nextVideoPath = VideoPathSwitchable.Mode.AUTO
+            nextVideoPath = defaults.videoPath
             nextDolbyVision = null
             defaultDolbyVision = true
             manualEngine = false
@@ -423,9 +433,9 @@ class PlaybackSession(
             .map { ExternalSubtitle(it.index, session.authorizedUrl(it.deliveryUrl!!), it.codec, it.language, it.displayTitle) }
 
         val newEngine = provider.create(device)
-        nextVideoPath?.let { (newEngine as? VideoPathSwitchable)?.setVideoPathMode(it) }
+        (newEngine as? VideoPathSwitchable)?.setVideoPathMode(nextVideoPath ?: defaults.videoPath)
         nextVideoPath = null
-        nextDolbyVision?.let { (newEngine as? DolbyVisionSwitchable)?.useDolbyVisionDecoder = it }
+        (newEngine as? DolbyVisionSwitchable)?.useDolbyVisionDecoder = nextDolbyVision ?: defaults.dolbyVision
         (newEngine as? SubtitleStyleable)?.let {
             it.setSubtitleStyle(subtitleStyle)
             it.setSubtitleLift(subtitleLift)

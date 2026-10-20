@@ -2,6 +2,7 @@ package ru.stenfredd.movies.ui.details
 
 import android.graphics.RectF
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
@@ -99,7 +100,7 @@ fun DetailsScreen(
                     .padding(bottom = 200.dp),
             ) {
                 Hero(item, state, focus, vm, onOpen, Modifier.anchoredRow(anchored))
-                if (item.cast.isNotEmpty()) Cast(item, focus, Modifier.anchoredRow(anchored))
+                if (item.cast.isNotEmpty()) Cast(item, focus, onOpen, Modifier.anchoredRow(anchored))
                 if (state.similar.isNotEmpty()) {
                     ContentRow("Похожие", null, Modifier.anchoredRow(anchored).padding(top = 6.dp)) {
                         items(state.similar, key = { it.key }, contentType = { "poster" }) { p ->
@@ -291,7 +292,7 @@ private fun OptionRow(title: String, color: Color, options: List<TrackOption>, s
 }
 
 @Composable
-private fun Cast(item: DetailsModel, focus: ScreenFocus, modifier: Modifier) {
+private fun Cast(item: DetailsModel, focus: ScreenFocus, onOpen: (Screen) -> Unit, modifier: Modifier) {
     Column(modifier.padding(top = 10.dp)) {
         SectionTitle(item.castTitle, null)
         DefaultScrolling {
@@ -301,7 +302,7 @@ private fun Cast(item: DetailsModel, focus: ScreenFocus, modifier: Modifier) {
                 contentPadding = PaddingValues(horizontal = AppDimens.CONTENT_START.dp, vertical = 15.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                items(item.cast, key = { it.key }) { p -> CastChip(p, Modifier.remembered(focus, p.key)) }
+                items(item.cast, key = { it.key }) { p -> CastChip(p, { p.personId?.let { onOpen(Screen.Person(it)) } }, Modifier.remembered(focus, p.key)) }
             }
         }
     }
@@ -309,9 +310,9 @@ private fun Cast(item: DetailsModel, focus: ScreenFocus, modifier: Modifier) {
 
 private val CastFocus = FocusStyle(scale = 1.03f, corner = 27.5.dp, ring = 1.dp, glows = listOf(FocusStyle.Glow(17.dp, 0.dp, Color(0x737C5CFF))))
 
-/** Actor pill: photo (or initials), name, role. Focusable for scrolling; opening a person comes with search (stage 8). */
+/** Actor pill: photo (or initials), name, role; opens the person's page. */
 @Composable
-private fun CastChip(person: CastModel, modifier: Modifier) {
+private fun CastChip(person: CastModel, onClick: () -> Unit, modifier: Modifier) {
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(27.5.dp)
     Row(
@@ -321,7 +322,7 @@ private fun CastChip(person: CastModel, modifier: Modifier) {
             .background(if (focused) Color(0xFF1F2238) else AppColors.Surface, shape)
             .border(0.5.dp, if (focused) AppColors.Accent else Color(0xFF262A3A), shape)
             .onFocusChanged { focused = it.isFocused }
-            .focusable()
+            .clickable(interactionSource = null, indication = null, onClick = onClick)
             .padding(start = 8.dp, end = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(9.dp),

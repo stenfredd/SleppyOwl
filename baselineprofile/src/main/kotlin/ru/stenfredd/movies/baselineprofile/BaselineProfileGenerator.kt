@@ -15,7 +15,7 @@ import org.junit.runner.RunWith
  *
  * Path: cold start → home (snapshot, then fresh data) → along "Continue watching" → down through the rows, along
  * each → open a card, down through its page → back → library tab: along the tiles, down through the rows and the grid
- * → back up. With the instrumentation argument `seriesId` also a series page:
+ * → back up → search (type a few letters, through the results) → favourites → settings. With the instrumentation argument `seriesId` also a series page:
  * along the buttons, the season chips, the episode row, the audio/subtitle tray. The device must be logged in.
  *
  * Run: `./gradlew :app:generateReleaseBaselineProfile [-Pandroid.testInstrumentationRunnerArguments.seriesId=<id>]`
@@ -78,6 +78,45 @@ class BaselineProfileGenerator {
             press { device.pressDPadRight() }
         }
         repeat(LIBRARY_ROWS) { press { device.pressDPadUp() } }
+
+        // Search tab (two items up the rail): type on the on-screen keyboard, go through the results.
+        press { device.pressBack() }
+        repeat(2) { press { device.pressDPadUp() } }
+        press { device.pressDPadCenter() }
+        Thread.sleep(1_500)
+        press { device.pressDPadCenter() }
+        repeat(2) { press { device.pressDPadRight() } }
+        press { device.pressDPadCenter() }
+        Thread.sleep(1_500)
+        repeat(6) { press { device.pressDPadRight() } }
+        repeat(3) { press { device.pressDPadDown() } }
+        repeat(3) { press { device.pressDPadUp() } }
+
+        // Favourites tab (the last tab at the top of the rail).
+        press { device.pressBack() }
+        repeat(3) { press { device.pressDPadDown() } }
+        press { device.pressDPadCenter() }
+        Thread.sleep(1_500)
+        press { device.pressDPadDown() }
+        press { device.pressDPadUp() }
+
+        // Settings (below the tabs): through the sections (each is shown after a pause), along a row of choices.
+        // Nothing is picked: the choices are saved at once.
+        press { device.pressBack() }
+        press { device.pressDPadDown() }
+        press { device.pressDPadCenter() }
+        Thread.sleep(1_500)
+        repeat(4) {
+            press { device.pressDPadDown() }
+            Thread.sleep(400)
+        }
+        repeat(4) {
+            press { device.pressDPadUp() }
+            Thread.sleep(400)
+        }
+        press { device.pressDPadRight() }
+        repeat(2) { press { device.pressDPadRight() } }
+        press { device.pressDPadDown() }
 
         val seriesId = InstrumentationRegistry.getArguments().getString("seriesId") ?: return@collect
         startActivityAndWait { it.putExtra("series", seriesId) }

@@ -87,6 +87,12 @@ class SessionCache @Inject constructor(private val session: JellyfinSession) {
         }
     }
 
+    /** Drops what depends on the user's data or settings (default tracks in details) and tells screens to reload. */
+    fun dropUserData() {
+        drop(Kind.UserData)
+        _invalidations.tryEmit(Unit)
+    }
+
     private fun drop(kind: Kind) {
         val before = entries.size
         entries.entries.removeAll { it.value.kind == kind }

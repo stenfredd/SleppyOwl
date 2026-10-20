@@ -6,6 +6,7 @@ import org.jellyfin.sdk.api.client.extensions.libraryApi
 import org.jellyfin.sdk.api.client.extensions.personApi
 import org.jellyfin.sdk.api.client.extensions.showApi
 import org.jellyfin.sdk.api.client.extensions.userViewApi
+import org.jellyfin.sdk.model.api.BaseItemKind
 import org.jellyfin.sdk.model.api.ItemFilter
 import org.jellyfin.sdk.model.api.ItemSortBy
 import org.jellyfin.sdk.model.api.SortOrder
@@ -18,7 +19,8 @@ import ru.stenfredd.movies.core.data.model.ItemSummary
 import ru.stenfredd.movies.core.data.model.LibraryType
 import ru.stenfredd.movies.core.data.model.LibraryView
 import ru.stenfredd.movies.core.data.model.Page
-import ru.stenfredd.movies.core.data.model.SearchResults
+import ru.stenfredd.movies.core.data.model.Person
+import ru.stenfredd.movies.core.data.model.itemKinds
 import ru.stenfredd.movies.core.jellyfin.JellyfinSession
 import java.util.UUID
 import javax.inject.Inject
@@ -67,6 +69,7 @@ class LibraryRepository @Inject constructor(
                     },
                     genres = query.genre?.let { listOf(it) },
                     personIds = query.personId?.let { listOf(it) },
+                    searchTerm = query.searchTerm,
                     startIndex = start,
                     limit = limit,
                     fields = CARD_FIELDS,
@@ -114,25 +117,52 @@ class LibraryRepository @Inject constructor(
             .map { it.toSummary() }
     }
 
-    /** Movies, series and episodes matching [term], and people. Not cached: every keystroke is a new term. */
-    suspend fun search(term: String, limit: Int = 60): SearchResults = coroutineScope {
-        val items = async {
-            session.call {
-                libraryApi.getItems(
-                    userId = userId,
-                    searchTerm = term,
-                    recursive = true,
-                    includeItemTypes = listOf(ItemKind.Movie, ItemKind.Series, ItemKind.Episode).mapNotNull { it.toBaseKind() },
-                    limit = limit,
-                    fields = CARD_FIELDS,
-                    enableTotalRecordCount = false,
-                ).content.items
-            }.map { it.toSummary() }
-        }
-        val people = async {
-            session.call { personApi.getPersons(searchTerm = term, userId = userId, limit = PEOPLE_LIMIT).content.items }.map { it.toPerson() }
-        }
-        SearchResults(items.await(), people.await())
+    /**
+     * Movies or series of library [view] matching [term], best matches first. Per library and of its own type:
+     * the screen groups results by library, and mixed types are much slower on the server. Not cached: every
+     * keystroke is a new term.
+     */
+    suspend fun search(term: String, view: LibraryView, limit: Int = SEARCH_LIMIT): List<ItemSummary> = session.call {
+        libraryApi.getItems(
+            userId = userId,
+            parentId = view.id,
+            searchTerm = term,
+            recursive = true,
+            includeItemTypes = view.itemKinds.mapNotNull { it.toBaseKind() },
+            limit = limit,
+            fields = CARD_FIELDS,
+            enableTotalRecordCount = false,
+        ).content.items
+    }.map { it.toSummary() }
+
+    /**
+     * People matching [term]. Through `/Items`, not `/Persons`: the latter finds nothing by a Cyrillic name
+     * on Jellyfin 12 («питт» → 0, while `/Items` finds «Брэд Питт»).
+     */
+    suspend fun searchPeople(term: String, limit: Int = PEOPLE_LIMIT): List<Person> = session.call {
+        libraryApi.getItems(
+            userId = userId,
+            searchTerm = term,
+            recursive = true,
+            includeItemTypes = listOf(BaseItemKind.PERSON),
+            limit = limit,
+            enableTotalRecordCount = false,
+        ).content.items
+    }.map { it.toPerson() }
+
+    suspend fun person(id: UUID): Person = cache.get("person:$id", Kind.Stable) {
+        session.call { libraryApi.getItem(itemId = id, userId = userId).content }.toPerson()
+    }
+
+    /**
+     * Movies, series and single episodes (guest roles) with person [id], newest first; one request per type
+     * (mixed types are slow).
+     */
+    suspend fun filmography(id: UUID): List<ItemSummary> = coroutineScope {
+        listOf(ItemKind.Movie, ItemKind.Series, ItemKind.Episode)
+            .map { kind -> async { items(ItemQuery(kinds = setOf(kind), personId = id, sort = ItemSort.PremiereDate, descending = true), 0, FILMOGRAPHY_LIMIT, withTotal = false).items } }
+            .flatMap { it.await() }
+            .sortedWith(compareByDescending<ItemSummary> { it.year ?: 0 }.thenByDescending { it.premiereAt ?: 0L }.thenBy { it.name })
     }
 
     private fun ItemSort.toSortBy(): List<ItemSortBy> = when (this) {
@@ -147,5 +177,7 @@ class LibraryRepository @Inject constructor(
 
     private companion object {
         const val PEOPLE_LIMIT = 20
+        const val SEARCH_LIMIT = 40
+        const val FILMOGRAPHY_LIMIT = 200
     }
 }

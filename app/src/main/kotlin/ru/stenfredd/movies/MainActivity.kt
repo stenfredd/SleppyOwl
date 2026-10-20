@@ -27,19 +27,29 @@ import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import dagger.hilt.android.AndroidEntryPoint
+import androidx.compose.runtime.produceState
+import ru.stenfredd.movies.core.data.LibraryRepository
+import ru.stenfredd.movies.core.data.model.LibraryType
 import ru.stenfredd.movies.core.jellyfin.JellyfinSession
 import ru.stenfredd.movies.playback.api.EngineId
 import ru.stenfredd.movies.playback.api.StreamSelection
 import ru.stenfredd.movies.ui.ItemsScreen
-import ru.stenfredd.movies.ui.PrototypeScreen
 import ru.stenfredd.movies.ui.Screen
 import ru.stenfredd.movies.ui.TourScreen
 import ru.stenfredd.movies.ui.details.DetailsScreen
 import ru.stenfredd.movies.ui.home.HomeScreen
+import ru.stenfredd.movies.ui.favorites.FavoritesScreen
+import ru.stenfredd.movies.ui.library.LibraryMemory
 import ru.stenfredd.movies.ui.library.LibraryScreen
+import ru.stenfredd.movies.ui.person.PersonScreen
+import ru.stenfredd.movies.ui.search.SearchScreen
+import ru.stenfredd.movies.ui.settings.LicenseScreen
+import ru.stenfredd.movies.ui.settings.SettingsScreen
 import ru.stenfredd.movies.ui.player.PlayerScreen
 import ru.stenfredd.movies.ui.series.SeriesScreen
 import ru.stenfredd.movies.ui.login.LoginScreen
+import ru.stenfredd.movies.ui.components.AppIcon
+import ru.stenfredd.movies.ui.shell.RailLibrary
 import ru.stenfredd.movies.ui.shell.Shell
 import ru.stenfredd.movies.ui.shell.Tab
 import ru.stenfredd.movies.ui.theme.AppColors
@@ -51,6 +61,11 @@ import javax.inject.Inject
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     @Inject lateinit var session: JellyfinSession
+    @Inject lateinit var libraryRepository: LibraryRepository
+    @Inject lateinit var libraryMemory: LibraryMemory
+
+    /** Account → its libraries on the rail, see [Root]. */
+    private var railLibraries: Pair<String, List<RailLibrary>> = "" to emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -107,17 +122,29 @@ class MainActivity : ComponentActivity() {
                 NavEntry(screen) {
                     when (screen) {
                         Screen.Login -> LoginScreen(onDone = { resetTo(root(Tab.Home)) })
-                        is Screen.Root -> Root(screen.tab, onTab = { resetTo(root(it)) }, onOpen = ::open, onLogout = { resetTo(Screen.Login) })
-                        Screen.Prototype -> Legacy { PrototypeScreen(onOpen = ::open, onLogout = { resetTo(Screen.Login) }) }
+                        is Screen.Root -> Root(
+                            screen.tab,
+                            onTab = { resetTo(root(it)) },
+                            onLibrary = { id ->
+                                val account = session.session.value?.accountId.orEmpty()
+                                libraryMemory.setLibrary(account, id)
+                                resetTo(Screen.Root(Tab.Library, account, library = id))
+                            },
+                            onOpen = ::open,
+                            onSignedOut = { resetTo(Screen.Login) },
+                            onSwitched = { resetTo(root(Tab.Home)) },
+                        )
                         is Screen.Items -> Legacy { ItemsScreen(screen, onOpen = ::open) }
                         is Screen.Detail -> DetailsScreen(screen, onOpen = ::open)
                         is Screen.Series -> SeriesScreen(screen, onOpen = ::open)
+                        is Screen.Person -> PersonScreen(screen, onOpen = ::open)
                         is Screen.Player -> PlayerScreen(
                             screen,
                             onExit = ::back,
                             onOpenDetails = { id -> showDetails(id) },
                             onOpenSeries = { seriesId, episodeId -> showSeries(seriesId, episodeId) },
                         )
+                        is Screen.License -> LicenseScreen(screen)
                         is Screen.Tour -> TourScreen(screen.startIndex, onExit = ::back)
                     }
                 }
@@ -128,21 +155,37 @@ class MainActivity : ComponentActivity() {
     private fun root(tab: Tab) = Screen.Root(tab, session.session.value?.accountId.orEmpty())
 
     @Composable
-    private fun Root(tab: Tab, onTab: (Tab) -> Unit, onOpen: (Screen) -> Unit, onLogout: () -> Unit) {
+    private fun Root(tab: Tab, onTab: (Tab) -> Unit, onLibrary: (UUID) -> Unit, onOpen: (Screen) -> Unit, onSignedOut: () -> Unit, onSwitched: () -> Unit) {
         val user by session.session.collectAsStateWithLifecycle()
+        // Cached by the repository (shared with home and the library tab); the rail just goes without them on failure.
+        // The last list starts the next tab's rail, so it does not appear a frame later on every tab switch.
+        val account = user?.accountId.orEmpty()
+        val libraries by produceState(railLibraries.takeIf { it.first == account }?.second.orEmpty(), account) {
+            value = runCatching { libraryRepository.views() }.getOrNull().orEmpty().map { view ->
+                val icon = when (view.type) {
+                    LibraryType.Movies -> AppIcon.Film
+                    LibraryType.Shows -> AppIcon.Tv
+                    else -> AppIcon.Library
+                }
+                RailLibrary(view.id, view.name, icon)
+            }
+            railLibraries = account to value
+        }
         Shell(
             current = tab,
             userName = user?.userName.orEmpty(),
             userSeed = user?.userId?.toString().orEmpty(),
+            libraries = libraries,
             onTab = onTab,
+            onLibrary = onLibrary,
             onProfile = { onOpen(Screen.Login) },
         ) {
             when (tab) {
                 Tab.Home -> HomeScreen(onOpen = onOpen)
                 Tab.Library -> LibraryScreen(onOpen = onOpen)
-                // Until stage 8 the search tab is the old prototype: text search, debug tour, logout.
-                Tab.Search -> Legacy { PrototypeScreen(onOpen = onOpen, onLogout = onLogout) }
-                Tab.Favorites -> Placeholder("${tab.label}: скоро")
+                Tab.Search -> SearchScreen(onOpen = onOpen)
+                Tab.Favorites -> FavoritesScreen(onOpen = onOpen)
+                Tab.Settings -> SettingsScreen(onOpen = onOpen, onSignedOut = onSignedOut, onSwitched = onSwitched)
             }
         }
     }
@@ -151,11 +194,6 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun Legacy(content: @Composable () -> Unit) {
         Surface(Modifier.fillMaxSize(), colors = SurfaceDefaults.colors(containerColor = Color.Transparent, contentColor = AppColors.Text)) { content() }
-    }
-
-    @Composable
-    private fun Placeholder(text: String) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { BasicText(text, style = AppType.Body) }
     }
 
     /**

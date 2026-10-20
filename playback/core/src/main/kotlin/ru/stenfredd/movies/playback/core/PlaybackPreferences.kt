@@ -2,7 +2,9 @@ package ru.stenfredd.movies.playback.core
 
 import android.content.Context
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -12,6 +14,7 @@ import kotlinx.coroutines.flow.map
 import org.json.JSONObject
 import ru.stenfredd.movies.core.jellyfin.JellyfinSession
 import ru.stenfredd.movies.playback.api.SubtitleStyle
+import ru.stenfredd.movies.playback.api.VideoPathSwitchable
 import timber.log.Timber
 import java.util.UUID
 import javax.inject.Inject
@@ -32,12 +35,22 @@ data class TrackPick(val language: String?, val name: String?, val codec: String
         ?.first
 }
 
+/**
+ * Playback defaults from the settings screen, for everyone on this TV (they depend on the TV and the network).
+ * [maxBitrate] null = the original file; [dolbyVision] = decode Dolby Vision files with the DV decoder.
+ */
+data class PlaybackDefaults(
+    val maxBitrate: Int? = null,
+    val videoPath: VideoPathSwitchable.Mode = VideoPathSwitchable.Mode.AUTO,
+    val dolbyVision: Boolean = false,
+)
+
 /** What the user picked last for a movie or a series. [subtitle] null with [subtitleOff] = subtitles off. */
 data class RememberedTracks(val audio: TrackPick?, val subtitle: TrackPick?, val subtitleOff: Boolean)
 
 /**
- * Player settings kept on the device: the look of text subtitles (for everyone on this TV) and the tracks chosen
- * per movie or series (per account: family members watch with different tracks).
+ * Player settings kept on the device: the look of text subtitles and the playback defaults (for everyone on this TV),
+ * and the tracks chosen per movie or series (per account: family members watch with different tracks).
  */
 @Singleton
 class PlaybackPreferences @Inject constructor(
@@ -50,6 +63,24 @@ class PlaybackPreferences @Inject constructor(
 
     suspend fun setSubtitleStyle(style: SubtitleStyle) {
         context.playbackStore.edit { it[KEY_SUBTITLE_STYLE] = "${style.size}|${style.color}|${style.background}" }
+    }
+
+    val defaults: Flow<PlaybackDefaults> = context.playbackStore.data.map { prefs ->
+        PlaybackDefaults(
+            maxBitrate = prefs[KEY_MAX_BITRATE]?.takeIf { it > 0 },
+            videoPath = prefs[KEY_VIDEO_PATH]?.let { runCatching { VideoPathSwitchable.Mode.valueOf(it) }.getOrNull() } ?: VideoPathSwitchable.Mode.AUTO,
+            dolbyVision = prefs[KEY_DOLBY_VISION] ?: false,
+        )
+    }
+
+    suspend fun defaults(): PlaybackDefaults = defaults.first()
+
+    suspend fun setDefaults(defaults: PlaybackDefaults) {
+        context.playbackStore.edit {
+            it[KEY_MAX_BITRATE] = defaults.maxBitrate ?: 0
+            it[KEY_VIDEO_PATH] = defaults.videoPath.name
+            it[KEY_DOLBY_VISION] = defaults.dolbyVision
+        }
     }
 
     /** [key]: the series of an episode, else the item itself. */
@@ -104,5 +135,8 @@ class PlaybackPreferences @Inject constructor(
 
     private companion object {
         val KEY_SUBTITLE_STYLE = stringPreferencesKey("subtitle_style")
+        val KEY_MAX_BITRATE = intPreferencesKey("max_bitrate")
+        val KEY_VIDEO_PATH = stringPreferencesKey("video_path")
+        val KEY_DOLBY_VISION = booleanPreferencesKey("dolby_vision")
     }
 }

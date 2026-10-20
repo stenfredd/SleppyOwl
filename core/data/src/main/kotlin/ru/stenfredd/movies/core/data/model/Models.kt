@@ -112,6 +112,7 @@ data class ItemQuery(
     val favoritesOnly: Boolean = false,
     val genre: String? = null,
     val personId: UUID? = null,
+    val searchTerm: String? = null,
 )
 
 /** Everything the movie/episode/series screens show about one item. */
@@ -179,6 +180,3 @@ data class SubtitleTrack(
     val forced: Boolean,
     val isDefault: Boolean,
 )
-
-/** Search results: items (grouped by kind on screen) and people. */
-data class SearchResults(val items: List<ItemSummary>, val people: List<Person>)

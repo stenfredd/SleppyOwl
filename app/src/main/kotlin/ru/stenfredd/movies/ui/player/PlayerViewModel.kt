@@ -126,8 +126,9 @@ class PlayerViewModel @javax.inject.Inject constructor(
 
     private var startedFor: Screen.Player? = null
     private var infoJob: Job? = null
-    /** Quality chosen in the player: kept for the next episode. */
+    /** Quality chosen in the player: kept for the next episode. Until then the default from the settings applies. */
     private var maxBitrate: Int? = null
+    private var qualityChosen = false
     /** Every episode of the series being played, in order. */
     private var allEpisodes: List<ItemSummary> = emptyList()
 
@@ -148,7 +149,7 @@ class PlayerViewModel @javax.inject.Inject constructor(
     private fun play(itemId: UUID, engine: EngineId?, startMs: Long, streams: StreamSelection?, startFraction: Double?) {
         val old = _session.value
         val session = factory.create(viewModelScope)
-        session.setMaxBitrate(maxBitrate)
+        if (qualityChosen) session.setMaxBitrate(maxBitrate)
         _session.value = session
         old?.release()
         session.start(itemId, engine, startMs, streams, startFraction)
@@ -157,6 +158,7 @@ class PlayerViewModel @javax.inject.Inject constructor(
 
     fun setQuality(bitrate: Int?) {
         maxBitrate = bitrate
+        qualityChosen = true
         _session.value?.setMaxBitrate(bitrate)
     }
 
@@ -276,7 +278,7 @@ class PlayerViewModel @javax.inject.Inject constructor(
     /** "Оригинал" and the transcode caps below the file's own bitrate, labelled with the resulting resolution. */
     private fun qualities(fileBitrate: Int?, height: Int?): List<QualityOption> {
         val original = QualityOption("q/original", null, "Оригинал", fileBitrate?.let { PlayerLabels.mbps(it) })
-        val caps = QUALITY_CAPS.filter { (bitrate, _) -> fileBitrate == null || bitrate < fileBitrate * 0.9 }
+        val caps = QualityCaps.ALL.filter { (bitrate, _) -> fileBitrate == null || bitrate < fileBitrate * 0.9 }
         return listOf(original) + caps.map { (bitrate, lines) ->
             val shown = if (height != null && height in 1 until lines) height else lines
             QualityOption("q/$bitrate", bitrate, "${shown}p", PlayerLabels.mbps(bitrate))
@@ -287,9 +289,13 @@ class PlayerViewModel @javax.inject.Inject constructor(
         const val CAST_LIMIT = 4
         /** An episode watched further than this starts from the beginning when picked in the drawer. */
         const val RESUME_LIMIT = 0.9f
-        /** Bitrate cap → resolution the server scales to at that bitrate (its own rule of thumb). */
-        val QUALITY_CAPS = listOf(20_000_000 to 1080, 10_000_000 to 1080, 4_000_000 to 720, 1_500_000 to 480)
     }
+}
+
+/** Transcode caps offered by "Качество" (player and settings). */
+internal object QualityCaps {
+    /** Bitrate cap → resolution the server scales to at that bitrate (its own rule of thumb). */
+    val ALL = listOf(20_000_000 to 1080, 10_000_000 to 1080, 4_000_000 to 720, 1_500_000 to 480)
 }
 
 /** Sizes (dp) shared by the layout and the image requests. */

@@ -2,6 +2,7 @@ package ru.stenfredd.movies.ui.focus
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -61,7 +62,18 @@ fun Modifier.remembered(focus: ScreenFocus, key: String, isDefault: Boolean = fa
 fun ScreenFocus.Restore(ready: Boolean) {
     LaunchedEffect(ready) {
         if (!ready) return@LaunchedEffect
+        // Two frames: the content may still recompose once (see [ForgetMissing]) before the requester is in place.
+        withFrameNanos { }
         withFrameNanos { }
         runCatching { requester.requestFocus() }
     }
+}
+
+/**
+ * Forgets the remembered element when it is no longer among [keys] (an item left the list while the screen was in
+ * the back stack, e.g. removed from favourites), so the default element gets focus instead of none.
+ */
+@Composable
+fun ScreenFocus.ForgetMissing(keys: Set<String>) {
+    SideEffect { if (lastKey != null && lastKey !in keys) lastKey = null }
 }

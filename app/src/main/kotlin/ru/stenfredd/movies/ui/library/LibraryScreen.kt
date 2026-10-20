@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -36,7 +35,6 @@ import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.style.TextOverflow
@@ -59,6 +57,8 @@ import ru.stenfredd.movies.ui.components.PosterCard
 import ru.stenfredd.movies.ui.components.WideCard
 import ru.stenfredd.movies.ui.components.anchorViewport
 import ru.stenfredd.movies.ui.components.anchoredRow
+import ru.stenfredd.movies.ui.components.bleed
+import ru.stenfredd.movies.ui.components.fullItem
 import ru.stenfredd.movies.ui.components.focusCard
 import ru.stenfredd.movies.ui.focus.Restore
 import ru.stenfredd.movies.ui.focus.ScreenFocus
@@ -109,7 +109,7 @@ private fun Library(state: LibraryState, vm: LibraryViewModel, focus: ScreenFocu
                 horizontalArrangement = Arrangement.spacedBy(LibraryLayout.GRID_GAP.dp),
             ) {
                 fullItem("tiles", "tiles") {
-                    Tiles(state, vm, focus, Modifier.bleed(fullWidth).anchoredRow(anchored))
+                    Tiles(state, vm, focus, Modifier.bleed(fullWidth, Side).anchoredRow(anchored))
                 }
                 if (content == null) {
                     state.contentError?.let { error -> fullItem("error", "text") { Note("Не удалось загрузить: $error") } }
@@ -152,7 +152,7 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.rows(
     val id = content.libraryId
     if (content.continueItems.isNotEmpty()) {
         fullItem("$id/cont", "wide-row") {
-            ContentRow("Продолжить просмотр", content.continueItems.size, Modifier.bleed(fullWidth).padding(top = RowGap).anchoredRow(anchored)) {
+            ContentRow("Продолжить просмотр", content.continueItems.size, Modifier.bleed(fullWidth, Side).padding(top = RowGap).anchoredRow(anchored)) {
                 items(content.continueItems, key = { it.key }, contentType = { "wide" }) { w ->
                     WideCard(w, { open(w.key) }, Modifier.remembered(focus, w.key))
                 }
@@ -162,7 +162,7 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.rows(
     for ((name, title, posters) in listOf(Triple("new", "Недавно добавлено", content.latest), Triple("hist", "История просмотра", content.history))) {
         if (posters.isEmpty()) continue
         fullItem("$id/$name", "poster-row") {
-            ContentRow(title, posters.size, Modifier.bleed(fullWidth).padding(top = RowGap).anchoredRow(anchored)) {
+            ContentRow(title, posters.size, Modifier.bleed(fullWidth, Side).padding(top = RowGap).anchoredRow(anchored)) {
                 items(posters, key = { it.key }, contentType = { "poster" }) { p ->
                     PosterCard(p, { open(p.key) }, Modifier.remembered(focus, p.key))
                 }
@@ -171,9 +171,6 @@ private fun androidx.compose.foundation.lazy.grid.LazyGridScope.rows(
     }
 }
 
-private fun androidx.compose.foundation.lazy.grid.LazyGridScope.fullItem(key: String, type: String, content: @Composable () -> Unit) =
-    item(key = key, span = { GridItemSpan(maxLineSpan) }, contentType = type) { content() }
-
 /** Library tiles; focusing one selects it, OK moves down into its content. */
 @Composable
 private fun Tiles(state: LibraryState, vm: LibraryViewModel, focus: ScreenFocus, modifier: Modifier = Modifier) {
@@ -181,7 +178,9 @@ private fun Tiles(state: LibraryState, vm: LibraryViewModel, focus: ScreenFocus,
     DefaultScrolling {
         LazyRow(
             modifier.focusRestorer(),
-            state = rememberLazyListState(),
+            // The selected tile in view from the start (it can be far right when opened from the rail): only composed
+            // tiles can take the first focus, and focusing another one would switch the library.
+            state = rememberLazyListState((state.tiles.indexOfFirst { it.id == state.selected } - 2).coerceAtLeast(0)),
             contentPadding = PaddingValues(horizontal = AppDimens.CONTENT_START.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(AppDimens.ROW_GAP.dp),
         ) {
@@ -266,16 +265,6 @@ private fun LoadMore(grid: LazyGridState, vm: LibraryViewModel) {
             ((info.visibleItemsInfo.lastOrNull()?.index ?: 0) >= info.totalItemsCount - PREFETCH) to info.totalItemsCount
         }.distinctUntilChanged().collect { (nearEnd, _) -> if (nearEnd) vm.loadMore() }
     }
-}
-
-/**
- * A full-width item of the grid laid out [width] wide from the screen's content edge, not inside the grid's side
- * padding: rows of cards scroll from edge to edge, as on home.
- */
-private fun Modifier.bleed(width: Dp) = layout { measurable, constraints ->
-    val w = width.roundToPx()
-    val placeable = measurable.measure(constraints.copy(minWidth = w, maxWidth = w))
-    layout(constraints.maxWidth, placeable.height) { placeable.place(-Side.roundToPx(), 0) }
 }
 
 @Composable

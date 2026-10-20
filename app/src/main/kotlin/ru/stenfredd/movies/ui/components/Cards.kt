@@ -45,6 +45,8 @@ data class PosterModel(
     val progress: Float? = null,
     val isNew: Boolean = false,
     val watched: Boolean = false,
+    /** Heart in the corner (favourites); shown instead of the watched mark. */
+    val favorite: Boolean = false,
 )
 
 /** Episode still or backdrop with a title over it: "Continue watching" cards. */
@@ -75,7 +77,11 @@ fun PosterCard(model: PosterModel, onClick: () -> Unit, modifier: Modifier = Mod
         ) {
             RemoteImage(model.image, PosterCorner, Modifier.fillMaxSize())
             if (model.isNew) NewBadge(Modifier.align(Alignment.TopStart).padding(6.dp))
-            if (model.watched) WatchedBadge(Modifier.align(Alignment.TopEnd).padding(6.dp))
+            if (model.favorite) {
+                FavoriteBadge(Modifier.align(Alignment.TopEnd).padding(6.dp))
+            } else if (model.watched) {
+                WatchedBadge(Modifier.align(Alignment.TopEnd).padding(6.dp))
+            }
             // The mockup's bottom shade under the badge costs a card-sized blend; a small dark plate does the same job.
             model.badge?.let {
                 BasicText(
@@ -239,5 +245,19 @@ fun WatchedBadge(modifier: Modifier = Modifier) {
         contentAlignment = Alignment.Center,
     ) {
         CheckIcon(Modifier.size(9.dp), AppColors.Green)
+    }
+}
+
+/** Pink heart in a dark circle (`rgba(10,11,16,.6)`, pink border): favourites. */
+@Composable
+fun FavoriteBadge(modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .size(19.dp)
+            .background(Color(0x990A0B10), CircleShape)
+            .border(0.5.dp, AppColors.Pink.copy(alpha = 0.6f), CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(AppIcon.HeartFilled, AppColors.Pink, Modifier.size(10.dp))
     }
 }

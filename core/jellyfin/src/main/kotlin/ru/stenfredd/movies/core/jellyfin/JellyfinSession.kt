@@ -17,9 +17,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import okhttp3.OkHttpClient
 import org.jellyfin.sdk.api.client.ApiClient
 import org.jellyfin.sdk.api.client.HttpClientOptions
+import org.jellyfin.sdk.api.client.extensions.sessionApi
 import org.jellyfin.sdk.api.okhttp.OkHttpFactory
 import org.jellyfin.sdk.createJellyfin
 import org.jellyfin.sdk.discovery.DiscoveryService
@@ -159,13 +161,29 @@ class JellyfinSession @Inject constructor(
         activate(account)
     }
 
-    /** Signs out of the current account and forgets it on this device. */
+    /** Signs out of the current account (its token is revoked on the server, if it answers) and forgets it on this device. */
     suspend fun logout() = mutex.withLock {
         val current = _session.value ?: return@withLock
+        revoke { api }
         _accounts.value = store.update(currentId = null) { list -> list.filterNot { it.id == current.accountId } }
         api.update(accessToken = null)
         routing.set(null, null)
         _session.value = null
+    }
+
+    /** Forgets another saved account on this device; its token is revoked on the server, if it answers. */
+    suspend fun forget(accountId: String) = mutex.withLock {
+        val account = _accounts.value.firstOrNull { it.id == accountId } ?: return@withLock
+        if (account.id == _session.value?.accountId) return@withLock
+        revoke { jellyfin.createApi(baseUrl = account.serverUrl, accessToken = account.accessToken, deviceInfo = api.deviceInfo) }
+        _accounts.value = store.update(_session.value?.accountId) { list -> list.filterNot { it.id == accountId } }
+            .sortedByDescending { it.lastUsedAt }
+    }
+
+    /** Ends the token's session on the server (it disappears from the server's device list); a silent server is not waited for long. */
+    private suspend fun revoke(client: () -> ApiClient) {
+        runCatching { withTimeout(REVOKE_TIMEOUT_MS) { withContext(Dispatchers.IO) { client().sessionApi.reportSessionEnded() } } }
+            .onFailure { Timber.w(it, "Token not revoked on the server") }
     }
 
     /** The SDK reads response bodies on the calling thread, so every call must leave the main thread. */
@@ -233,5 +251,6 @@ class JellyfinSession @Inject constructor(
         const val CLIENT_NAME = "Movies"
         const val CLIENT_VERSION = "0.1.0"
         const val LOCAL_RECHECK_MS = 10 * 60_000L
+        const val REVOKE_TIMEOUT_MS = 3_000L
     }
 }

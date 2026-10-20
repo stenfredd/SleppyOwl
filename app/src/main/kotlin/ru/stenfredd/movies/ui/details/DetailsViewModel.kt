@@ -41,7 +41,7 @@ import kotlin.math.roundToInt
 data class TrackOption(val key: String, val index: Int?, val label: String, val detail: String?)
 
 @Immutable
-data class CastModel(val key: String, val name: String, val role: String?, val letters: String, val image: RemoteImageSpec?)
+data class CastModel(val key: String, val name: String, val role: String?, val letters: String, val image: RemoteImageSpec?, val personId: UUID? = null)
 
 /** Everything the movie (or episode) page shows, as display strings. */
 @Immutable
@@ -243,6 +243,7 @@ class DetailsViewModel @AssistedInject constructor(
                     role = p.role,
                     letters = p.name.split(' ').filter { it.isNotBlank() }.take(2).joinToString("") { it.take(1).uppercase() },
                     image = p.image?.let { RemoteImageSpec(images.url(it, cards.px(DetailsLayout.AVATAR), cards.px(DetailsLayout.AVATAR)), it.blurHash) },
+                    personId = p.id,
                 )
             },
         )

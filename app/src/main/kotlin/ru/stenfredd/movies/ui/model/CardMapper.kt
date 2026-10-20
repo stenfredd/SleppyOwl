@@ -48,6 +48,18 @@ class CardMapper @Inject constructor(
         )
     }
 
+    /** Poster captioned "Фильм · 2021" / "Сериал · 2020": lists that mix movies and series. */
+    fun kindPoster(item: ItemSummary, row: String): PosterModel = poster(item, row).copy(
+        caption = listOfNotNull(
+            when (item.kind) {
+                ItemKind.Movie -> "Фильм"
+                ItemKind.Series -> "Сериал"
+                else -> null
+            },
+            item.year?.toString(),
+        ).joinToString(" · ").ifEmpty { null },
+    )
+
     fun wide(item: ItemSummary, row: String): WideModel = WideModel(
         key = key(row, item),
         title = item.seriesName ?: item.name,

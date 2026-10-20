@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
@@ -45,6 +47,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.util.lerp
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import kotlinx.coroutines.delay
@@ -56,13 +59,19 @@ import ru.stenfredd.movies.ui.theme.AppDimens
 import ru.stenfredd.movies.ui.theme.AppType
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
+import java.util.UUID
 
 enum class Tab(val label: String, val icon: AppIcon) {
     Search("Поиск", AppIcon.Search),
     Home("Главная", AppIcon.Home),
     Library("Медиатека", AppIcon.Library),
     Favorites("Избранное", AppIcon.Heart),
+    /** Not in the mockup; at the bottom of the rail, above the profile. */
+    Settings("Настройки", AppIcon.Settings),
 }
+
+/** A library listed on the rail under the tabs; choosing it opens the library tab on it. */
+data class RailLibrary(val id: UUID, val name: String, val icon: AppIcon)
 
 /**
  * Root screens (the tabs): side rail on the left, clock on the top right, content behind.
@@ -76,7 +85,9 @@ fun Shell(
     userName: String,
     /** Avatar colour seed (user id), see [Avatar]. */
     userSeed: String,
+    libraries: List<RailLibrary>,
     onTab: (Tab) -> Unit,
+    onLibrary: (UUID) -> Unit,
     onProfile: () -> Unit,
     content: @Composable () -> Unit,
 ) {
@@ -90,9 +101,11 @@ fun Shell(
             current = current,
             userName = userName,
             userSeed = userSeed,
+            libraries = libraries,
             entry = railEntry,
             onFocusChange = { railFocused = it },
             onTab = onTab,
+            onLibrary = onLibrary,
             onProfile = onProfile,
             modifier = Modifier.zIndex(1f),
         )
@@ -109,9 +122,11 @@ private fun Rail(
     current: Tab,
     userName: String,
     userSeed: String,
+    libraries: List<RailLibrary>,
     entry: FocusRequester,
     onFocusChange: (Boolean) -> Unit,
     onTab: (Tab) -> Unit,
+    onLibrary: (UUID) -> Unit,
     onProfile: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -147,16 +162,38 @@ private fun Rail(
         verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         Logo(progress, Modifier.padding(start = 13.dp, bottom = 20.dp))
-        for (tab in Tab.entries) {
-            RailItem(
-                tab = tab,
-                selected = tab == current,
-                progress = progress,
-                onClick = { if (tab != current) onTab(tab) },
-                modifier = if (tab == current) Modifier.focusRequester(entry) else Modifier,
-            )
+        @Composable
+        fun item(tab: Tab) = RailItem(
+            label = tab.label,
+            icon = tab.icon,
+            selected = tab == current,
+            progress = progress,
+            onClick = { if (tab != current) onTab(tab) },
+            modifier = if (tab == current) Modifier.focusRequester(entry) else Modifier,
+        )
+        for (tab in Tab.entries) if (tab != Tab.Settings) item(tab)
+        if (libraries.isNotEmpty()) {
+            RailDivider(progress)
+            // Smaller than the tabs, so five fit between them and the settings; more scroll.
+            Column(
+                Modifier.weight(1f).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                for (library in libraries) {
+                    RailItem(
+                        label = library.name,
+                        icon = library.icon,
+                        selected = false,
+                        progress = progress,
+                        onClick = { onLibrary(library.id) },
+                        height = 30.dp,
+                    )
+                }
+            }
+        } else {
+            Spacer(Modifier.weight(1f))
         }
-        Spacer(Modifier.weight(1f))
+        item(Tab.Settings)
         ProfileItem(userName, userSeed, progress, onProfile)
     }
 }
@@ -191,15 +228,38 @@ private fun Modifier.railHighlight(focused: Boolean, color: Color, progress: Sta
     drawRoundRect(color, size = Size(w, size.height), cornerRadius = CornerRadius(8.dp.toPx()))
 }
 
+/** Line between the tabs and the libraries, as wide as an item's highlight. */
 @Composable
-private fun RailItem(tab: Tab, selected: Boolean, progress: State<Float>, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun RailDivider(progress: State<Float>) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(11.dp)
+            .drawBehind {
+                val collapsed = (AppDimens.RAIL_COLLAPSED - 18).dp.toPx()
+                val w = lerp(collapsed, size.width, progress.value)
+                drawRect(AppColors.BorderSubtle, topLeft = Offset(0f, (size.height / 2).toInt().toFloat()), size = Size(w, 1.dp.toPx().coerceAtLeast(1f)))
+            },
+    )
+}
+
+@Composable
+private fun RailItem(
+    label: String,
+    icon: AppIcon,
+    selected: Boolean,
+    progress: State<Float>,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    height: Dp = 36.dp,
+) {
     var focused by remember { mutableStateOf(false) }
     val content = when {
         focused -> AppColors.OnFocusFill
         selected -> AppColors.Text
         else -> AppColors.TextDim
     }
-    Box(modifier.fillMaxWidth().height(36.dp)) {
+    Box(modifier.fillMaxWidth().height(height)) {
         // Selected tab marker on the rail's left edge, visible while the rail is closed.
         if (selected) {
             Box(
@@ -224,12 +284,13 @@ private fun RailItem(tab: Tab, selected: Boolean, progress: State<Float>, onClic
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(11.dp),
         ) {
-            Icon(tab.icon, content, Modifier.size(16.dp))
+            Icon(icon, content, Modifier.size(16.dp))
             BasicText(
-                tab.label,
+                label,
                 Modifier.graphicsLayer { alpha = progress.value },
                 style = AppType.Rail.copy(color = content),
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 softWrap = false,
             )
         }

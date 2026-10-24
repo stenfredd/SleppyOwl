@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import ru.stenfredd.movies.core.data.model.MediaSegment
 import ru.stenfredd.movies.ui.components.AppIcon
 import kotlin.math.roundToInt
 import ru.stenfredd.movies.ui.components.FocusStyle
@@ -131,11 +132,19 @@ internal fun OsdTop(label: String, title: String, subtitle: String?, endsAt: Str
 }
 
 /**
- * Track with the buffered part, the played part and chapter marks; thicker with a knob when focused.
- * Drawn as plain rectangles in one draw call: no layers, no paths.
+ * Track with the buffered part, skippable parts (intro, credits), the played part and chapter marks; thicker with a
+ * knob when focused. Drawn as plain rectangles in one draw call: no layers, no paths.
  */
 @Composable
-internal fun Timeline(positionMs: Long, durationMs: Long, bufferedMs: Long, chaptersMs: List<Long>, focused: Boolean, modifier: Modifier = Modifier) {
+internal fun Timeline(
+    positionMs: Long,
+    durationMs: Long,
+    bufferedMs: Long,
+    chaptersMs: List<Long>,
+    spans: List<MediaSegment>,
+    focused: Boolean,
+    modifier: Modifier = Modifier,
+) {
     Spacer(
         modifier
             .fillMaxWidth()
@@ -148,6 +157,10 @@ internal fun Timeline(positionMs: Long, durationMs: Long, bufferedMs: Long, chap
                 fun x(ms: Long) = if (durationMs > 0) (ms.toFloat() / durationMs).coerceIn(0f, 1f) * w else 0f
                 drawRoundRect(Color(0x29FFFFFF), Offset(0f, top), Size(w, trackH), r)
                 if (bufferedMs > positionMs) drawRoundRect(Color(0x2EFFFFFF), Offset(0f, top), Size(x(bufferedMs), trackH), r)
+                for (span in spans) {
+                    val from = x(span.startMs)
+                    drawRect(SpanColor, Offset(from, top), Size(x(span.endMs) - from, trackH))
+                }
                 val played = x(positionMs)
                 if (played > 0f) {
                     drawRoundRect(
@@ -170,6 +183,8 @@ internal fun Timeline(positionMs: Long, durationMs: Long, bufferedMs: Long, chap
             },
     )
 }
+
+private val SpanColor = Color(0x598F6BFF)
 
 /** ⟲ ⟳ ⏮ ⏭: translucent circle, light fill when focused. */
 @Composable

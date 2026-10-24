@@ -38,12 +38,25 @@ data class TrackPick(val language: String?, val name: String?, val codec: String
 /**
  * Playback defaults from the settings screen, for everyone on this TV (they depend on the TV and the network).
  * [maxBitrate] null = the original file; [dolbyVision] = decode Dolby Vision files with the DV decoder.
+ * [skipIntro]: openings, recaps, previews, ads; [skipCredits]: credits (then the next episode).
  */
 data class PlaybackDefaults(
     val maxBitrate: Int? = null,
     val videoPath: VideoPathSwitchable.Mode = VideoPathSwitchable.Mode.AUTO,
     val dolbyVision: Boolean = false,
+    val skipIntro: SkipMode = SkipMode.Button,
+    val skipCredits: SkipMode = SkipMode.Button,
 )
+
+/** What the player does with a part of the video the server marked as skippable. */
+enum class SkipMode {
+    /** Offers "Пропустить …". */
+    Button,
+    /** Skips it on its own. */
+    Auto,
+    /** Plays it as is. */
+    Off,
+}
 
 /** What the user picked last for a movie or a series. [subtitle] null with [subtitleOff] = subtitles off. */
 data class RememberedTracks(val audio: TrackPick?, val subtitle: TrackPick?, val subtitleOff: Boolean)
@@ -70,6 +83,8 @@ class PlaybackPreferences @Inject constructor(
             maxBitrate = prefs[KEY_MAX_BITRATE]?.takeIf { it > 0 },
             videoPath = prefs[KEY_VIDEO_PATH]?.let { runCatching { VideoPathSwitchable.Mode.valueOf(it) }.getOrNull() } ?: VideoPathSwitchable.Mode.AUTO,
             dolbyVision = prefs[KEY_DOLBY_VISION] ?: false,
+            skipIntro = prefs[KEY_SKIP_INTRO].toSkipMode(),
+            skipCredits = prefs[KEY_SKIP_CREDITS].toSkipMode(),
         )
     }
 
@@ -80,8 +95,12 @@ class PlaybackPreferences @Inject constructor(
             it[KEY_MAX_BITRATE] = defaults.maxBitrate ?: 0
             it[KEY_VIDEO_PATH] = defaults.videoPath.name
             it[KEY_DOLBY_VISION] = defaults.dolbyVision
+            it[KEY_SKIP_INTRO] = defaults.skipIntro.name
+            it[KEY_SKIP_CREDITS] = defaults.skipCredits.name
         }
     }
+
+    private fun String?.toSkipMode(): SkipMode = this?.let { runCatching { SkipMode.valueOf(it) }.getOrNull() } ?: SkipMode.Button
 
     /** [key]: the series of an episode, else the item itself. */
     suspend fun tracks(key: UUID): RememberedTracks? {
@@ -138,5 +157,7 @@ class PlaybackPreferences @Inject constructor(
         val KEY_MAX_BITRATE = intPreferencesKey("max_bitrate")
         val KEY_VIDEO_PATH = stringPreferencesKey("video_path")
         val KEY_DOLBY_VISION = booleanPreferencesKey("dolby_vision")
+        val KEY_SKIP_INTRO = stringPreferencesKey("skip_intro")
+        val KEY_SKIP_CREDITS = stringPreferencesKey("skip_credits")
     }
 }

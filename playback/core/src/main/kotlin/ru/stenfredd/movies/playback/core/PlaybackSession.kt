@@ -205,6 +205,19 @@ class PlaybackSession(
         reportProgressAsync()
     }
 
+    /**
+     * The app left the screen (Home on the remote) with the player open: pause, save the position on the server and
+     * say the item's progress changed, so lists outside the app (the TV's home screen) show it.
+     */
+    fun pauseInBackground() {
+        val e = engine ?: return
+        if (e.state.value.playWhenReady) e.pause()
+        scope.launch {
+            reportProgress()
+            session.notifyUserDataChanged(item.id)
+        }
+    }
+
     fun seekBy(deltaMs: Long) = seekTo(positionMs() + deltaMs)
 
     fun seekTo(positionMs: Long) {

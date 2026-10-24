@@ -2,7 +2,6 @@ package ru.stenfredd.movies.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +27,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import ru.stenfredd.movies.ui.menu.WatchTarget
+import ru.stenfredd.movies.ui.menu.clickableWithMenu
 import ru.stenfredd.movies.ui.theme.AppColors
 import ru.stenfredd.movies.ui.theme.AppDimens
 import ru.stenfredd.movies.ui.theme.AppType
@@ -47,6 +48,8 @@ data class PosterModel(
     val watched: Boolean = false,
     /** Heart in the corner (favourites); shown instead of the watched mark. */
     val favorite: Boolean = false,
+    /** What a long press marks watched or unwatched. */
+    val watch: WatchTarget? = null,
 )
 
 /** Episode still or backdrop with a title over it: "Continue watching" cards. */
@@ -57,6 +60,7 @@ data class WideModel(
     val subtitle: String,
     val image: RemoteImageSpec?,
     val progress: Float?,
+    val watch: WatchTarget? = null,
 )
 
 private val PosterCorner = 7.dp
@@ -73,7 +77,7 @@ fun PosterCard(model: PosterModel, onClick: () -> Unit, modifier: Modifier = Mod
             Modifier
                 .focusCard(FocusStyle.Poster)
                 .size(AppDimens.POSTER_W.dp, AppDimens.POSTER_H.dp)
-                .clickable(interactionSource = null, indication = null, onClick = onClick),
+                .clickableWithMenu(model.watch, onClick),
         ) {
             RemoteImage(model.image, PosterCorner, Modifier.fillMaxSize())
             if (model.isNew) NewBadge(Modifier.align(Alignment.TopStart).padding(6.dp))
@@ -120,7 +124,7 @@ fun WideCard(model: WideModel, onClick: () -> Unit, modifier: Modifier = Modifie
         modifier
             .focusCard(FocusStyle.Wide)
             .size(AppDimens.WIDE_W.dp, AppDimens.WIDE_H.dp)
-            .clickable(interactionSource = null, indication = null, onClick = onClick),
+            .clickableWithMenu(model.watch, onClick),
     ) {
         RemoteImage(model.image, WideCorner, Modifier.fillMaxSize(), shade = WideShade)
         Column(Modifier.align(Alignment.BottomStart).padding(start = 10.dp, end = 10.dp, bottom = 11.dp)) {
@@ -150,6 +154,7 @@ data class FeaturedModel(
     val image: RemoteImageSpec?,
     val progress: Float,
     val remaining: String?,
+    val watch: WatchTarget? = null,
 )
 
 @Composable
@@ -158,7 +163,7 @@ fun FeaturedCard(model: FeaturedModel, onClick: () -> Unit, modifier: Modifier =
         modifier
             .focusCard(FocusStyle.Featured)
             .size(410.dp, 230.5.dp)
-            .clickable(interactionSource = null, indication = null, onClick = onClick),
+            .clickableWithMenu(model.watch, onClick),
     ) {
         RemoteImage(model.image, FeaturedCorner, Modifier.fillMaxSize(), shade = FeaturedShade)
         Column(Modifier.align(Alignment.BottomStart).padding(start = 20.dp, end = 20.dp, bottom = 22.dp)) {

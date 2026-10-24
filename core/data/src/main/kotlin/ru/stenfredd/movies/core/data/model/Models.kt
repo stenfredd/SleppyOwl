@@ -128,6 +128,21 @@ data class ItemDetails(
 
 data class Chapter(val name: String, val startMs: Long)
 
+/** A part of a movie or an episode the player can skip, from the server's Media Segments (e.g. the Intro Skipper plugin). */
+data class MediaSegment(val kind: SegmentKind, val startMs: Long, val endMs: Long)
+
+enum class SegmentKind {
+    /** Opening, title sequence. */
+    Intro,
+    /** "Previously on". */
+    Recap,
+    /** A look at the next episode. */
+    Preview,
+    /** Credits, ending. */
+    Outro,
+    Commercial,
+}
+
 /** The file of a playable item: what the format badges and the "file" line show, and the track choices. */
 data class MediaInfo(
     val sourceId: String,

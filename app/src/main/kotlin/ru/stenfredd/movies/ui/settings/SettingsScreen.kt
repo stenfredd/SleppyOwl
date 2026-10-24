@@ -60,6 +60,7 @@ import ru.stenfredd.movies.core.jellyfin.Account
 import ru.stenfredd.movies.playback.api.SubtitleStyle
 import ru.stenfredd.movies.playback.api.VideoPathSwitchable
 import ru.stenfredd.movies.playback.core.PlaybackDefaults
+import ru.stenfredd.movies.playback.core.SkipMode
 import ru.stenfredd.movies.ui.Screen
 import ru.stenfredd.movies.ui.components.Avatar
 import ru.stenfredd.movies.ui.components.Chip
@@ -296,7 +297,24 @@ private fun PlaybackSection(vm: SettingsViewModel, focus: ScreenFocus) {
             Choices("dv", options, defaults.dolbyVision, focus) { set(defaults.copy(dolbyVision = it)) }
         }
     }
+    Setting(
+        "Заставки",
+        "Опенинги, пересказ прошлых серий, анонсы. «Кнопка» — в начале заставки появляется «Пропустить заставку», " +
+            "«Сразу» — плеер перескакивает её сам. Работает там, где сервер знает заставки (плагин Intro Skipper).",
+    ) {
+        Choices("skip-intro", skipOptions, defaults.skipIntro, focus) { set(defaults.copy(skipIntro = it)) }
+    }
+    Setting(
+        "Титры",
+        "«Кнопка» — с началом титров появляется карточка «Следующая серия» с отсчётом (или «Пропустить титры», если " +
+            "после них ещё что-то есть). «Сразу» — следующая серия включается, как только начались титры. «Не пропускать» — " +
+            "карточка за 30 с до конца серии.",
+    ) {
+        Choices("skip-credits", skipOptions, defaults.skipCredits, focus) { set(defaults.copy(skipCredits = it)) }
+    }
 }
+
+private val skipOptions = listOf(Option(SkipMode.Button, "Кнопка"), Option(SkipMode.Auto, "Сразу"), Option(SkipMode.Off, "Не пропускать"))
 
 // --- Языки ---
 

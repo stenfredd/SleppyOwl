@@ -84,6 +84,8 @@ import ru.stenfredd.movies.ui.focus.Restore
 import ru.stenfredd.movies.ui.focus.ScreenFocus
 import ru.stenfredd.movies.ui.focus.rememberScreenFocus
 import ru.stenfredd.movies.ui.focus.remembered
+import ru.stenfredd.movies.ui.menu.LocalWatchMenu
+import ru.stenfredd.movies.ui.menu.clickableWithMenu
 import ru.stenfredd.movies.ui.theme.AppColors
 import ru.stenfredd.movies.ui.theme.AppDimens
 import ru.stenfredd.movies.ui.theme.AppType
@@ -118,6 +120,7 @@ fun SeriesScreen(
 
 private const val KEY_PLAY = "play"
 private const val KEY_TRACKS = "tracks"
+private const val KEY_WATCHED = "watched"
 
 /**
  * What the page highlights: the season of the chips and the map, the episode described at the bottom.
@@ -287,6 +290,15 @@ private fun Header(
                 onFavorite,
                 Modifier.remembered(focus, "favorite"),
                 tint = if (item.favorite) AppColors.Pink else Color(0xFFE3E5F2),
+            )
+            // The whole series at once, so through the menu (it says how many episodes) rather than a toggle.
+            val menu = LocalWatchMenu.current
+            val watchedButton = remember { FocusRequester() }
+            CircleButton(
+                AppIcon.Check,
+                { menu?.open(item.watch, watchedButton) },
+                Modifier.focusRequester(watchedButton).remembered(focus, KEY_WATCHED),
+                tint = if (item.watch.played) AppColors.Green else Color(0xFFE3E5F2),
             )
         }
     }
@@ -514,7 +526,7 @@ private fun SeasonChip(season: SeriesSeason, selected: Boolean, onClick: () -> U
             .background(if (focused) AppColors.FocusFill else if (selected) Color(0xFF211D4A) else AppColors.SurfaceRaised, shape)
             .border(0.5.dp, if (focused) AppColors.FocusFill else if (selected) Color(0xFF7A6CFF) else AppColors.Border, shape)
             .onFocusChanged { focused = it.isFocused }
-            .clickable(interactionSource = null, indication = null, onClick = onClick)
+            .clickableWithMenu(season.watch, onClick)
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -594,7 +606,7 @@ private fun EpisodeCard(e: SeriesEpisode, onClick: () -> Unit, modifier: Modifie
             modifier
                 .focusCard(EpisodeFocus)
                 .size(SeriesLayout.EPISODE_W.dp, SeriesLayout.EPISODE_H.dp)
-                .clickable(interactionSource = null, indication = null, onClick = onClick),
+                .clickableWithMenu(e.watch, onClick),
         ) {
             RemoteImage(e.image, 8.dp, Modifier.fillMaxSize())
             BasicText(

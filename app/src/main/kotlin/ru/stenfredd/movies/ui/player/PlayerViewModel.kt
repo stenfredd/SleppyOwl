@@ -24,6 +24,7 @@ import ru.stenfredd.movies.playback.api.StreamSelection
 import ru.stenfredd.movies.playback.api.SubtitleStyle
 import ru.stenfredd.movies.playback.core.DeviceCapabilitiesProbe
 import ru.stenfredd.movies.playback.core.EngineSelector
+import ru.stenfredd.movies.playback.core.PlaybackDefaults
 import ru.stenfredd.movies.playback.core.PlaybackPreferences
 import ru.stenfredd.movies.playback.core.PlaybackSession
 import ru.stenfredd.movies.playback.core.PlaybackSessionFactory
@@ -94,6 +95,8 @@ data class PlayerInfo(
 /** The season of the episode being played, for the drawer and ⏮/⏭. */
 @Immutable
 data class SeasonEpisodes(
+    /** The episode being played: until the next one's season loads, this still describes the previous one. */
+    val currentId: UUID,
     /** "СЕЗОН 2 · СЕРИИ" */
     val title: String,
     /** "10 серий · 3 просмотрено" */
@@ -122,10 +125,18 @@ class PlayerViewModel @javax.inject.Inject constructor(
     private val _season = MutableStateFlow<SeasonEpisodes?>(null)
     val season: StateFlow<SeasonEpisodes?> = _season.asStateFlow()
 
+    private val _segments = MutableStateFlow<PlayerSegments?>(null)
+    /** Intro, credits …: skip buttons and the "next episode" card. */
+    val segments: StateFlow<PlayerSegments?> = _segments.asStateFlow()
+
     val subtitleStyle: StateFlow<SubtitleStyle> = prefs.subtitleStyle.stateIn(viewModelScope, SharingStarted.Eagerly, SubtitleStyle())
+
+    /** For the skip settings. */
+    val defaults: StateFlow<PlaybackDefaults> = prefs.defaults.stateIn(viewModelScope, SharingStarted.Eagerly, PlaybackDefaults())
 
     private var startedFor: Screen.Player? = null
     private var infoJob: Job? = null
+    private var segmentsJob: Job? = null
     /** Quality chosen in the player: kept for the next episode. Until then the default from the settings applies. */
     private var maxBitrate: Int? = null
     private var qualityChosen = false
@@ -179,6 +190,7 @@ class PlayerViewModel @javax.inject.Inject constructor(
     override fun onCleared() = release()
 
     private fun loadInfo(itemId: UUID) {
+        loadSegments(itemId)
         infoJob?.cancel()
         if (_info.value?.id != itemId) _info.value = null
         infoJob = viewModelScope.launch {
@@ -202,11 +214,27 @@ class PlayerViewModel @javax.inject.Inject constructor(
         }
     }
 
+    /** Apart from the info: a server without segments (or failing to give them) must not cost the drawer. */
+    private fun loadSegments(itemId: UUID) {
+        segmentsJob?.cancel()
+        if (_segments.value?.itemId != itemId) _segments.value = null
+        segmentsJob = viewModelScope.launch {
+            try {
+                _segments.value = PlayerSegments(itemId, library.segments(itemId))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "Player: segments failed")
+            }
+        }
+    }
+
     private fun season(current: ItemSummary, all: List<ItemSummary>): SeasonEpisodes {
         val index = all.indexOfFirst { it.id == current.id }
         val inSeason = all.filter { it.seasonId == current.seasonId }
         val watched = inSeason.count { it.user.played }
         return SeasonEpisodes(
+            currentId = current.id,
             title = listOfNotNull(current.seasonNumber?.let { "СЕЗОН $it" }, "СЕРИИ").joinToString(" · "),
             stat = "${inSeason.size} ${plural(inSeason.size, "серия", "серии", "серий")} · $watched просмотрено",
             episodes = inSeason.map { e ->

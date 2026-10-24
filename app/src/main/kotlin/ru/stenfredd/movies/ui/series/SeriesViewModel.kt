@@ -25,6 +25,7 @@ import ru.stenfredd.movies.core.data.LibraryRepository
 import ru.stenfredd.movies.core.data.SessionCache
 import ru.stenfredd.movies.core.data.WatchRepository
 import ru.stenfredd.movies.core.data.model.ItemDetails
+import ru.stenfredd.movies.core.data.model.ItemKind
 import ru.stenfredd.movies.core.data.model.ItemSummary
 import ru.stenfredd.movies.core.data.model.MediaInfo
 import ru.stenfredd.movies.playback.api.SubtitleStyle
@@ -34,6 +35,7 @@ import ru.stenfredd.movies.ui.components.RemoteImageSpec
 import ru.stenfredd.movies.ui.details.MediaLabels
 import ru.stenfredd.movies.ui.details.TrackChoices
 import ru.stenfredd.movies.ui.details.TrackOption
+import ru.stenfredd.movies.ui.menu.WatchTarget
 import ru.stenfredd.movies.ui.model.CardMapper
 import ru.stenfredd.movies.ui.player.PlayerLabels
 import ru.stenfredd.movies.ui.model.plural
@@ -70,6 +72,8 @@ data class SeriesEpisode(
     val progress: Float?,
     val state: EpisodeState,
     val resumeMs: Long,
+    /** What a long press on the card marks watched. */
+    val watch: WatchTarget,
 )
 
 @Immutable
@@ -88,6 +92,8 @@ data class SeriesSeason(
     val target: Int,
     /** Row index of the season's divider. */
     val dividerIndex: Int,
+    /** The whole season, for a long press on its chip. */
+    val watch: WatchTarget,
 )
 
 @Immutable
@@ -103,6 +109,8 @@ data class SeriesModel(
     val poster: RemoteImageSpec?,
     val backdropUrl: String?,
     val favorite: Boolean,
+    /** The whole series, for the ✓ button; played when every episode is. */
+    val watch: WatchTarget,
     val seasons: List<SeriesSeason>,
     val episodes: List<SeriesEpisode>,
     /** Index of the episode "Продолжить"/"Смотреть" plays. */
@@ -255,14 +263,15 @@ class SeriesViewModel @AssistedInject constructor(
             val first = episodes.size
             val dividerIndex = row++
             list.forEachIndexed { i, e ->
-                episodes += episode(e, si, row++, i, season, isNextUp = e === all.getOrNull(nextUp))
+                episodes += episode(e, si, row++, i, season, item.name, isNextUp = e === all.getOrNull(nextUp))
             }
             val own = episodes.subList(first, episodes.size)
             val watched = own.count { it.state == EpisodeState.Watched }
             val number = season.seasonNumber
+            val label = if (number != null && number > 0) "Сезон $number" else season.name
             seasons += SeriesSeason(
                 key = "season/${season.id}",
-                label = if (number != null && number > 0) "Сезон $number" else season.name,
+                label = label,
                 stat = when {
                     watched == own.size -> "✓"
                     watched == 0 && own.all { it.state == EpisodeState.New } -> "новый"
@@ -277,6 +286,7 @@ class SeriesViewModel @AssistedInject constructor(
                         ?: 0
                     ),
                 dividerIndex = dividerIndex,
+                watch = groupTarget(season.id, ItemKind.Season, item.name, label, own),
             )
         }
 
@@ -297,6 +307,7 @@ class SeriesViewModel @AssistedInject constructor(
             poster = cards.image(item.primary, SeriesLayout.POSTER_W, SeriesLayout.POSTER_H),
             backdropUrl = item.backdrop?.let { images.url(it, cards.px(SeriesLayout.BACKDROP_W), cards.px(SeriesLayout.BACKDROP_H), quality = 80) },
             favorite = item.user.favorite,
+            watch = groupTarget(item.id, ItemKind.Series, item.name, null, episodes),
             seasons = seasons,
             episodes = episodes,
             nextUp = nextUp.coerceAtLeast(0),
@@ -304,7 +315,7 @@ class SeriesViewModel @AssistedInject constructor(
         )
     }
 
-    private fun episode(e: ItemSummary, season: Int, rowIndex: Int, position: Int, seasonItem: ItemSummary, isNextUp: Boolean): SeriesEpisode {
+    private fun episode(e: ItemSummary, season: Int, rowIndex: Int, position: Int, seasonItem: ItemSummary, seriesName: String, isNextUp: Boolean): SeriesEpisode {
         val seasonNumber = e.seasonNumber ?: seasonItem.seasonNumber ?: 0
         // Some files have no episode number: their place in the season stands in.
         val number = e.episodeNumber ?: (position + 1)
@@ -335,6 +346,29 @@ class SeriesViewModel @AssistedInject constructor(
             progress = progress,
             state = state,
             resumeMs = if (progress != null) e.user.positionMs else 0,
+            watch = WatchTarget(
+                id = e.id,
+                kind = ItemKind.Episode,
+                title = seriesName,
+                subtitle = "S$seasonNumber · E${e.episodeNumber ?: number} · ${e.name}",
+                played = e.user.played,
+                progress = progress,
+            ),
+        )
+    }
+
+    /** A season or the whole series: every episode of it, as the page counts them (specials too). */
+    private fun groupTarget(id: UUID, kind: ItemKind, title: String, subtitle: String?, episodes: List<SeriesEpisode>): WatchTarget {
+        val watched = episodes.count { it.state == EpisodeState.Watched }
+        return WatchTarget(
+            id = id,
+            kind = kind,
+            title = title,
+            subtitle = subtitle,
+            played = episodes.isNotEmpty() && watched == episodes.size,
+            episodes = episodes.size,
+            watchedEpisodes = watched,
+            started = episodes.any { it.state == EpisodeState.InProgress },
         )
     }
 

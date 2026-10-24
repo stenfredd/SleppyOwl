@@ -3,6 +3,7 @@ package ru.stenfredd.movies.core.data
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import org.jellyfin.sdk.api.client.extensions.libraryApi
+import org.jellyfin.sdk.api.client.extensions.mediaSegmentApi
 import org.jellyfin.sdk.api.client.extensions.personApi
 import org.jellyfin.sdk.api.client.extensions.showApi
 import org.jellyfin.sdk.api.client.extensions.userViewApi
@@ -18,6 +19,7 @@ import ru.stenfredd.movies.core.data.model.ItemSort
 import ru.stenfredd.movies.core.data.model.ItemSummary
 import ru.stenfredd.movies.core.data.model.LibraryType
 import ru.stenfredd.movies.core.data.model.LibraryView
+import ru.stenfredd.movies.core.data.model.MediaSegment
 import ru.stenfredd.movies.core.data.model.Page
 import ru.stenfredd.movies.core.data.model.Person
 import ru.stenfredd.movies.core.data.model.itemKinds
@@ -99,6 +101,11 @@ class LibraryRepository @Inject constructor(
 
     suspend fun details(id: UUID): ItemDetails = cache.get("details:$id", Kind.UserData) {
         session.call { libraryApi.getItem(itemId = id, userId = userId).content }.toDetails()
+    }
+
+    /** Intro, credits and other skippable parts of [id] in time order; empty when the server has none. */
+    suspend fun segments(id: UUID): List<MediaSegment> = cache.get("segments:$id", Kind.Stable) {
+        session.call { mediaSegmentApi.getItemSegments(itemId = id).content.items }.mapNotNull { it.toSegment() }.sortedBy { it.startMs }
     }
 
     suspend fun seasons(seriesId: UUID): List<ItemSummary> = cache.get("seasons:$seriesId", Kind.UserData) {

@@ -41,7 +41,7 @@ import ru.stenfredd.movies.ui.components.focusCard
 import ru.stenfredd.movies.ui.theme.AppColors
 import ru.stenfredd.movies.ui.theme.AppType
 
-/** The card shows this long before the end of an episode that has a next one. */
+/** Without known credits the card shows this long before the end of an episode that has a next one. */
 internal const val NEXT_PROMPT_MS = 30_000L
 
 private val CardColor = Color(0xFF0E1018)
@@ -51,12 +51,13 @@ private val PromptFocus = FocusStyle(scale = 1f, corner = 17.dp, glows = FocusSt
 /**
  * "Следующая через N с" at the end of an episode: still and title of the next one, "Смотреть сейчас" and
  * "Досмотреть титры". Opaque (over video a translucent card costs a blend every frame); the countdown and the bar
- * move once a second, as the position does.
+ * move once a second, as the position does. [remainingMs] of [countdownMs] are left until the next episode starts.
  */
 @Composable
 internal fun NextEpisodeCard(
     next: NextEpisode,
     remainingMs: Long,
+    countdownMs: Long,
     playNow: FocusRequester,
     onPlay: () -> Unit,
     onStay: () -> Unit,
@@ -65,7 +66,7 @@ internal fun NextEpisodeCard(
 ) {
     val shape = RoundedCornerShape(10.dp)
     val seconds = ((remainingMs + 999) / 1000).coerceAtLeast(0)
-    val fraction = (1f - remainingMs.toFloat() / NEXT_PROMPT_MS).coerceIn(0f, 1f)
+    val fraction = (1f - remainingMs.toFloat() / countdownMs).coerceIn(0f, 1f)
     Column(
         modifier
             .width(320.dp)

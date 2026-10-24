@@ -10,7 +10,12 @@ import coil3.memory.MemoryCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.allowRgb565
 import coil3.request.crossfade
+import dagger.Lazy
 import dagger.hilt.android.HiltAndroidApp
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import timber.log.Timber
 import javax.inject.Inject
@@ -19,10 +24,13 @@ import javax.inject.Inject
 class MoviesApp : Application(), SingletonImageLoader.Factory {
     /** The API's client: images go to the server's LAN address at home too (`ServerRouting`), sharing its connections. */
     @Inject lateinit var httpClient: OkHttpClient
+    @Inject lateinit var launcherFeed: Lazy<LauncherFeed>
 
     override fun onCreate() {
         super.onCreate()
         Timber.plant(Timber.DebugTree())
+        // Built and run off the main thread: the first screen must not wait for it.
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch { launcherFeed.get().run() }
     }
 
     /**

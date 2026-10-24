@@ -7,6 +7,8 @@ import org.jellyfin.sdk.model.api.BaseItemPerson
 import org.jellyfin.sdk.model.api.CollectionType
 import org.jellyfin.sdk.model.api.ImageType
 import org.jellyfin.sdk.model.api.ItemFields
+import org.jellyfin.sdk.model.api.MediaSegmentDto
+import org.jellyfin.sdk.model.api.MediaSegmentType
 import org.jellyfin.sdk.model.api.MediaSourceInfo
 import org.jellyfin.sdk.model.api.MediaStream
 import org.jellyfin.sdk.model.api.MediaStreamType
@@ -21,8 +23,10 @@ import ru.stenfredd.movies.core.data.model.ItemSummary
 import ru.stenfredd.movies.core.data.model.LibraryType
 import ru.stenfredd.movies.core.data.model.LibraryView
 import ru.stenfredd.movies.core.data.model.MediaInfo
+import ru.stenfredd.movies.core.data.model.MediaSegment
 import ru.stenfredd.movies.core.data.model.Person
 import ru.stenfredd.movies.core.data.model.PersonKind
+import ru.stenfredd.movies.core.data.model.SegmentKind
 import ru.stenfredd.movies.core.data.model.SubtitleTrack
 import ru.stenfredd.movies.core.data.model.UserState
 import ru.stenfredd.movies.core.data.model.VideoRange
@@ -99,6 +103,19 @@ internal fun BaseItemDto.toDetails(): ItemDetails = ItemDetails(
     media = mediaSources?.firstOrNull()?.toMediaInfo(),
     chapters = chapters.orEmpty().map { Chapter(it.name.orEmpty(), it.startPositionTicks / TICKS_PER_MS) },
 )
+
+/** null for segments of unknown kind and empty ones. */
+internal fun MediaSegmentDto.toSegment(): MediaSegment? {
+    val kind = when (type) {
+        MediaSegmentType.INTRO -> SegmentKind.Intro
+        MediaSegmentType.RECAP -> SegmentKind.Recap
+        MediaSegmentType.PREVIEW -> SegmentKind.Preview
+        MediaSegmentType.OUTRO -> SegmentKind.Outro
+        MediaSegmentType.COMMERCIAL -> SegmentKind.Commercial
+        MediaSegmentType.UNKNOWN -> return null
+    }
+    return MediaSegment(kind, startTicks / TICKS_PER_MS, endTicks / TICKS_PER_MS).takeIf { it.endMs > it.startMs }
+}
 
 internal fun BaseItemDto.toLibraryView(): LibraryView = LibraryView(
     id = id,

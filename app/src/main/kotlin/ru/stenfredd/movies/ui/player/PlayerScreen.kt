@@ -51,6 +51,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
 import ru.stenfredd.movies.BuildConfig
 import ru.stenfredd.movies.core.data.model.MediaInfo
+import ru.stenfredd.movies.core.data.model.MediaSegment
 import ru.stenfredd.movies.core.data.model.VideoRange
 import ru.stenfredd.movies.core.data.toMediaInfo
 import ru.stenfredd.movies.playback.api.DolbyVisionSwitchable
@@ -77,6 +78,8 @@ import java.util.UUID
  * ↓ opens the drawer ("О фильме" / episodes), ↑ shows the controls. Seeks are collected while the keys are pressed
  * and sent to the engine once they stop. The controls hide after 6 s of no keys while playing.
  * Back: panel → drawer → controls → leave the player.
+ * Segments from the server (intro, credits …) get "Пропустить …" or are skipped on their own, as set in the settings;
+ * known credits bring the "next episode" card at their start.
  */
 @Composable
 fun PlayerScreen(
@@ -130,6 +133,21 @@ private class PlayerUiState {
     var nextDismissedFor by mutableStateOf<UUID?>(null)
     /** The "next episode" card has focus: arrows and OK go to its buttons. */
     var promptFocused = false
+    /** Where the "next episode" card appeared over known credits: its countdown runs from there. */
+    var nextFrom by mutableStateOf<Long?>(null)
+    /** Segments skipped in this playback (by the button or on their own): not offered again. */
+    var skipped by mutableStateOf(SegmentSet())
+    /** Segments the user seeked into: they went there on purpose, so these are not skipped on their own. */
+    var seekedInto by mutableStateOf(SegmentSet())
+    /** Segments whose button timed out over the bare video: it shows only with the controls. */
+    var skipHidden by mutableStateOf(SegmentSet())
+    /** The skip button has focus: OK goes to it. */
+    var skipFocused = false
+    /** Something in the player has focus (a disappearing button can leave focus nowhere). */
+    var hasFocus = false
+    /** "Заставка пропущена" after an automatic skip. */
+    var notice by mutableStateOf<String?>(null)
+    var noticeVersion by mutableIntStateOf(0)
 
     val root = FocusRequester()
     val playPause = FocusRequester()
@@ -138,6 +156,7 @@ private class PlayerUiState {
     val drawerInitial = FocusRequester()
     val errorButton = FocusRequester()
     val nextPlay = FocusRequester()
+    val skipButton = FocusRequester()
     val debugMenuFocus = FocusRequester()
     val chips = PlayerPanel.entries.associateWith { FocusRequester() }
     var panelFrom: FocusRequester? = null
@@ -171,6 +190,8 @@ private fun PlayerUi(
     val info by vm.info.collectAsStateWithLifecycle()
     val season by vm.season.collectAsStateWithLifecycle()
     val style by vm.subtitleStyle.collectAsStateWithLifecycle()
+    val segments by vm.segments.collectAsStateWithLifecycle()
+    val defaults by vm.defaults.collectAsStateWithLifecycle()
     val ui = remember { PlayerUiState() }
     val focusManager = LocalFocusManager.current
     val media = remember(state.source) { state.source?.toMediaInfo() }
@@ -179,10 +200,30 @@ private fun PlayerUi(
     val ended = state.engineState.phase == EngineState.Phase.ENDED
     val shownPosition = ui.scrubTarget ?: state.positionMs
     val remainingMs = state.durationMs - state.positionMs
-    // "Следующая через N с" near the end of an episode, unless dismissed or something is open over the video.
-    val next = season?.nextEpisode?.takeIf {
-        info?.isEpisode == true && state.durationMs > 0 && remainingMs in 0..NEXT_PROMPT_MS && !ended && state.error == null &&
-            ui.nextDismissedFor != state.itemId && ui.panel == null && !ui.drawer
+    val itemId = state.itemId
+    val nextEpisode = season?.takeIf { it.currentId == itemId && info?.isEpisode == true }?.nextEpisode
+    val plan = remember(segments, itemId, state.durationMs, defaults, nextEpisode != null) {
+        segments?.takeIf { it.itemId == itemId }?.let { SkipPlan.of(it.segments, state.durationMs, defaults, hasNext = nextEpisode != null) }
+    }
+    val credits = plan?.credits
+    val overVideo = !ended && state.error == null && ui.panel == null && !ui.drawer
+    val nextDismissed = ui.nextDismissedFor == itemId
+    // Known credits with "Сразу": the next episode starts with them, unless the user seeked into them.
+    val creditsAuto = credits != null && plan?.creditsAuto == true && credits !in ui.seekedInto.of(itemId) && !nextDismissed
+    // "Следующая через N с" when the credits start (or near the end), unless dismissed or something is open over the video.
+    val nextWindow = if (credits != null) shownPosition >= credits.startMs else remainingMs in 0..NEXT_PROMPT_MS
+    val next = nextEpisode?.takeIf { state.durationMs > 0 && remainingMs >= 0 && nextWindow && overVideo && !nextDismissed && !creditsAuto }
+    // Its countdown: to the end of the file, or over known credits from where it appeared.
+    val nextCountdownMs = if (credits != null) CREDITS_COUNTDOWN_MS else NEXT_PROMPT_MS
+    val nextLeftMs = if (credits != null) minOf((ui.nextFrom ?: state.positionMs) + CREDITS_COUNTDOWN_MS - state.positionMs, remainingMs) else remainingMs
+    // "Пропустить заставку" while in a skippable part. A part skipped on its own shows the button only when seeked into.
+    val skip = plan?.skipAt(shownPosition)?.takeIf { s ->
+        overVideo && !state.loading && next == null && s.segment !in ui.skipped.of(itemId) &&
+            (!s.auto || s.segment in ui.seekedInto.of(itemId)) && (ui.osd || s.segment !in ui.skipHidden.of(itemId))
+    }
+    val autoSkip = plan?.skipAt(state.positionMs)?.takeIf { s ->
+        s.auto && ui.scrubTarget == null && !state.loading && state.error == null && !ended &&
+            s.segment !in ui.skipped.of(itemId) && s.segment !in ui.seekedInto.of(itemId)
     }
 
     fun hideOsd() {
@@ -190,6 +231,15 @@ private fun PlayerUi(
         ui.osd = false
         ui.drawer = false
         if (next != null) ui.focus(ui.nextPlay)
+    }
+
+    fun skipPart(part: Skippable, auto: Boolean) {
+        ui.skipped = ui.skipped.plus(itemId, part.segment)
+        session.seekTo(part.segment.endMs)
+        if (auto) {
+            ui.notice = SkipLabels.skipped(part.segment.kind)
+            ui.noticeVersion++
+        }
     }
 
     fun showOsd(focus: FocusRequester) {
@@ -243,6 +293,7 @@ private fun PlayerUi(
                 ui.nextDismissedFor = state.itemId
                 ui.focus(ui.root)
             }
+            skip != null -> ui.skipHidden = ui.skipHidden.plus(itemId, skip.segment)
             else -> onExit()
         }
     }
@@ -277,7 +328,7 @@ private fun PlayerUi(
                 if (!focusManager.moveFocus(FocusDirection.Up) && repeat == 0) hideOsd()
             }
             AndroidKeyEvent.KEYCODE_DPAD_UP if !ui.osd && repeat > 0 && tour == null && next == null -> Unit
-            else -> return onNavigationKey(code, repeat, ui, session, tour, ::scrub, ::showOsd, ::openDrawer, promptShown = next != null)
+            else -> return onNavigationKey(code, repeat, ui, session, tour, ::scrub, ::showOsd, ::openDrawer, promptShown = next != null, skipShown = skip != null)
         }
         return true
     }
@@ -297,6 +348,7 @@ private fun PlayerUi(
     LaunchedEffect(ui.scrubVersion) {
         val target = ui.scrubTarget ?: return@LaunchedEffect
         delay(SCRUB_COMMIT_MS)
+        plan?.spanAt(target)?.let { ui.seekedInto = ui.seekedInto.plus(state.itemId, it) }
         session.seekTo(target)
         // Keep showing the target until the engine reports the new position.
         delay(SCRUB_SETTLE_MS)
@@ -325,13 +377,45 @@ private fun PlayerUi(
     LaunchedEffect(state.itemId) {
         if (ui.drawer) closeDrawer()
     }
+    LaunchedEffect(autoSkip) {
+        autoSkip?.let { skipPart(it, auto = true) }
+    }
+    val creditsGo = creditsAuto && nextEpisode != null && credits != null && state.positionMs >= credits.startMs &&
+        ui.scrubTarget == null && overVideo && !state.loading
+    val nextCountedDown = next != null && credits != null && nextLeftMs <= 0
+    LaunchedEffect(creditsGo, nextCountedDown) {
+        if (creditsGo || nextCountedDown) nextEpisode?.let { vm.playEpisode(it.id) }
+    }
+    LaunchedEffect(ui.noticeVersion) {
+        if (ui.notice == null) return@LaunchedEffect
+        delay(SKIP_NOTICE_MS)
+        ui.notice = null
+    }
+    // Over the bare video the skip button takes focus and goes after a while (counted without the controls shown).
+    LaunchedEffect(skip?.segment, ui.osd) {
+        val part = skip?.segment ?: return@LaunchedEffect
+        if (ui.osd) return@LaunchedEffect
+        ui.focus(ui.skipButton)
+        delay(SKIP_PROMPT_MS)
+        ui.skipHidden = ui.skipHidden.plus(itemId, part)
+    }
+    val skipShown = skip != null
+    LaunchedEffect(skipShown) {
+        if (skipShown) return@LaunchedEffect
+        withFrameNanos { }
+        if (ui.skipFocused || !ui.hasFocus) {
+            ui.skipFocused = false
+            if (next == null) ui.focus(if (ui.osd) ui.playPause else ui.root)
+        }
+    }
     // The card takes focus when it appears over the bare video; with the controls shown they keep it.
     val nextShown = next != null
     LaunchedEffect(nextShown) {
         if (nextShown && !ui.osd) ui.focus(ui.nextPlay)
         if (!nextShown) ui.promptFocused = false
+        ui.nextFrom = if (nextShown) state.positionMs else null
     }
-    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { session.pause() }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { session.pauseInBackground() }
 
     // Back while nothing in the player has focus (the key handler above doesn't see it then).
     BackHandler { back() }
@@ -341,6 +425,7 @@ private fun PlayerUi(
             .fillMaxSize()
             .focusRequester(ui.root)
             .onPreviewKeyEvent(::onKey)
+            .onFocusChanged { ui.hasFocus = it.hasFocus }
             .focusable(),
     ) {
         if (!ui.osd && !playing && !state.loading && state.error == null && !ended) PausedBadge(Modifier.align(Alignment.Center))
@@ -352,6 +437,7 @@ private fun PlayerUi(
                 media = media,
                 ui = ui,
                 positionMs = shownPosition,
+                spans = plan?.spans.orEmpty(),
                 onToggle = session::togglePlayPause,
                 onSeek = { scrub(it, 0) },
                 onEpisode = vm::playEpisode,
@@ -387,10 +473,29 @@ private fun PlayerUi(
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
+        // Prompts sit in the corner, above the controls while they are shown.
+        val promptBottom = if (ui.osd) PROMPT_OVER_OSD.dp else 32.dp
+        skip?.let { part ->
+            SkipButton(
+                label = SkipLabels.button(part.segment.kind),
+                left = PlayerLabels.time(part.segment.endMs - shownPosition),
+                focusRequester = ui.skipButton,
+                onClick = {
+                    skipPart(part, auto = false)
+                    ui.focus(if (ui.osd) ui.playPause else ui.root)
+                },
+                onFocus = { ui.skipFocused = it },
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 48.dp, bottom = promptBottom),
+            )
+        }
+        ui.notice?.takeIf { skip == null && next == null }?.let { text ->
+            SkipNotice(text, Modifier.align(Alignment.BottomEnd).padding(end = 48.dp, bottom = promptBottom))
+        }
         next?.let { n ->
             NextEpisodeCard(
                 n,
-                remainingMs = remainingMs,
+                remainingMs = nextLeftMs,
+                countdownMs = nextCountdownMs,
                 playNow = ui.nextPlay,
                 onPlay = {
                     hideOsd()
@@ -402,8 +507,7 @@ private fun PlayerUi(
                     ui.focus(if (ui.osd) ui.playPause else ui.root)
                 },
                 onFocus = { ui.promptFocused = it },
-                // Above the controls while they are shown.
-                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 48.dp, bottom = if (ui.osd) 132.dp else 32.dp),
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 48.dp, bottom = promptBottom),
             )
         }
         if (state.loading && state.error == null) LoadingBadge(Modifier.align(Alignment.Center))
@@ -443,6 +547,7 @@ private fun onNavigationKey(
     showOsd: (FocusRequester) -> Unit,
     openDrawer: () -> Unit,
     promptShown: Boolean,
+    skipShown: Boolean,
 ): Boolean {
     if (BuildConfig.DEBUG && !ui.debugMenu) {
         when (code) {
@@ -460,6 +565,8 @@ private fun onNavigationKey(
     if (ui.panel != null || ui.drawer || ui.debugMenu) return false
     // The "next episode" card over the bare video: ←/→ and OK work its buttons.
     if (!ui.osd && promptShown && ui.promptFocused && code in PROMPT_KEYS) return false
+    // The skip button over the bare video: OK presses it, the arrows work as usual.
+    if (!ui.osd && skipShown && ui.skipFocused && code in OK_KEYS) return false
     if (!ui.osd) {
         when (code) {
             AndroidKeyEvent.KEYCODE_DPAD_UP if tour != null -> {
@@ -505,6 +612,7 @@ private fun OsdLayer(
     media: MediaInfo?,
     ui: PlayerUiState,
     positionMs: Long,
+    spans: List<MediaSegment>,
     onToggle: () -> Unit,
     onSeek: (Int) -> Unit,
     onEpisode: (UUID) -> Unit,
@@ -542,6 +650,7 @@ private fun OsdLayer(
                 durationMs = state.durationMs,
                 bufferedMs = state.bufferedMs,
                 chaptersMs = info?.chaptersMs.orEmpty(),
+                spans = spans,
                 focused = ui.timelineFocused,
                 modifier = Modifier
                     .padding(top = 3.dp)
@@ -706,15 +815,13 @@ private fun PanelLayer(
 
 private val GRAPHIC_SUBTITLES = setOf("pgssub", "hdmv_pgs_subtitle", "dvdsub", "dvd_subtitle", "vobsub", "dvbsub")
 
-private val PROMPT_KEYS = setOf(
-    AndroidKeyEvent.KEYCODE_DPAD_LEFT,
-    AndroidKeyEvent.KEYCODE_DPAD_RIGHT,
-    AndroidKeyEvent.KEYCODE_DPAD_CENTER,
-    AndroidKeyEvent.KEYCODE_ENTER,
-    AndroidKeyEvent.KEYCODE_NUMPAD_ENTER,
-)
+private val OK_KEYS = setOf(AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER, AndroidKeyEvent.KEYCODE_NUMPAD_ENTER)
+
+private val PROMPT_KEYS = OK_KEYS + setOf(AndroidKeyEvent.KEYCODE_DPAD_LEFT, AndroidKeyEvent.KEYCODE_DPAD_RIGHT)
 
 private const val OSD_TIMEOUT_MS = 6_000L
+/** Bottom of the skip button and the "next episode" card while the controls are shown: clear of the time labels. */
+private const val PROMPT_OVER_OSD = 150
 private const val TOP_SHADE = 105
 private const val BOTTOM_SHADE = 170
 private const val SCRUB_COMMIT_MS = 600L

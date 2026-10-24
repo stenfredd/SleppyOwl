@@ -11,6 +11,7 @@ import ru.stenfredd.movies.ui.components.FeaturedModel
 import ru.stenfredd.movies.ui.components.PosterModel
 import ru.stenfredd.movies.ui.components.RemoteImageSpec
 import ru.stenfredd.movies.ui.components.WideModel
+import ru.stenfredd.movies.ui.menu.WatchTarget
 import ru.stenfredd.movies.ui.theme.AppDimens
 import javax.inject.Inject
 import kotlin.math.roundToInt
@@ -45,6 +46,7 @@ class CardMapper @Inject constructor(
             progress = item.user.progress,
             isNew = isNew(item),
             watched = item.user.played,
+            watch = watchTarget(item),
         )
     }
 
@@ -66,6 +68,7 @@ class CardMapper @Inject constructor(
         subtitle = listOfNotNull(item.episodeLabel() ?: item.year?.toString(), item.remaining()).joinToString(" · "),
         image = image(item.landscape(), AppDimens.WIDE_W.toFloat(), AppDimens.WIDE_H.toFloat()),
         progress = item.user.progress,
+        watch = watchTarget(item),
     )
 
     fun featured(item: ItemSummary, row: String): FeaturedModel {
@@ -83,6 +86,7 @@ class CardMapper @Inject constructor(
             image = image(item.backdrop ?: item.landscape(), FEATURED_W, FEATURED_H),
             progress = item.user.progress ?: 0f,
             remaining = item.remaining(),
+            watch = watchTarget(item),
         )
     }
 
@@ -98,17 +102,33 @@ class CardMapper @Inject constructor(
         else -> Screen.Detail(item.id)
     }
 
+    /** What the card's long press marks watched: the item itself (a single new episode too, though it shows its series). */
+    fun watchTarget(item: ItemSummary): WatchTarget? {
+        val part = item.kind == ItemKind.Episode || item.kind == ItemKind.Season
+        return when (item.kind) {
+            ItemKind.Movie, ItemKind.Video, ItemKind.Episode, ItemKind.Season, ItemKind.Series -> WatchTarget(
+                id = item.id,
+                kind = item.kind,
+                title = (if (part) item.seriesName else null) ?: item.name,
+                subtitle = when (item.kind) {
+                    ItemKind.Episode -> listOfNotNull(
+                        item.seasonNumber?.let { "S$it" },
+                        item.episodeNumber?.let { "E$it" },
+                        item.name.takeIf { item.seriesName != null },
+                    ).joinToString(" · ").ifEmpty { null }
+                    ItemKind.Season -> item.name.takeIf { item.seriesName != null }
+                    else -> item.year?.toString()
+                },
+                played = item.user.played,
+                progress = item.user.progress,
+                unplayed = item.user.unplayedCount.takeIf { item.kind == ItemKind.Series || item.kind == ItemKind.Season },
+            )
+            else -> null
+        }
+    }
+
     fun image(ref: ImageRef?, wDp: Float, hDp: Float): RemoteImageSpec? =
         ref?.let { RemoteImageSpec(images.url(it, px(wDp), px(hDp)), it.blurHash) }
-
-    /** Episode still, else the backdrop or thumb of the item or its series. */
-    private fun ItemSummary.landscape(): ImageRef? = (if (kind == ItemKind.Episode) primary else null) ?: backdrop ?: thumb
-
-    private fun ItemSummary.remaining(): String? {
-        val runtime = runtimeMs ?: return null
-        val left = runtime * (1 - (user.progress ?: 0f)) / 60_000
-        return "осталось ${left.roundToInt()} мин"
-    }
 
     private fun ItemSummary.episodeLabel(): String? =
         if (kind == ItemKind.Episode && seasonNumber != null && episodeNumber != null) "S$seasonNumber · E$episodeNumber · $name" else null
@@ -132,4 +152,14 @@ class CardMapper @Inject constructor(
         const val FEATURED_W = 410f
         const val FEATURED_H = 230.5f
     }
+}
+
+/** Episode still, else the backdrop or thumb of the item or its series. Also the TV home screen's cards (`LauncherFeed`). */
+fun ItemSummary.landscape(): ImageRef? = (if (kind == ItemKind.Episode) primary else null) ?: backdrop ?: thumb
+
+/** "осталось 31 мин" from the item's progress. */
+fun ItemSummary.remaining(): String? {
+    val runtime = runtimeMs ?: return null
+    val left = runtime * (1 - (user.progress ?: 0f)) / 60_000
+    return "осталось ${left.roundToInt()} мин"
 }

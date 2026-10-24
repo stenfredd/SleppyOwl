@@ -65,6 +65,10 @@ class JellyfinSession @Inject constructor(
     private val _session = MutableStateFlow<SessionInfo?>(null)
     val session: StateFlow<SessionInfo?> = _session.asStateFlow()
 
+    private val _restored = MutableStateFlow(false)
+    /** True once [restore] has run: before that a null [session] means "not read yet", not "signed out". */
+    val restored: StateFlow<Boolean> = _restored.asStateFlow()
+
     private val _accounts = MutableStateFlow<List<Account>>(emptyList())
     /** Saved accounts, most recently used first. */
     val accounts: StateFlow<List<Account>> = _accounts.asStateFlow()
@@ -125,9 +129,10 @@ class JellyfinSession @Inject constructor(
             currentId = account.id
         }
         _accounts.value = accounts.sortedByDescending { it.lastUsedAt }
-        val current = accounts.firstOrNull { it.id == currentId } ?: return false
-        activate(current)
-        true
+        val current = accounts.firstOrNull { it.id == currentId }
+        current?.let(::activate)
+        _restored.value = true
+        current != null
     }
 
     /** Saves the account of a successful login (see [ServerLogin]) and makes it current. */

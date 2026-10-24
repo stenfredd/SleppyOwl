@@ -43,15 +43,15 @@ class WatchRepository @Inject constructor(
     }
 
     /**
-     * "Continue watching": started items first (most recent first), then the next episode of each series in progress
-     * that isn't already there. Of one library when [parentId] is given.
+     * "Continue watching", one card per movie or series: started items first (most recent first; of a series only its
+     * most recently watched episode), then the next episode of each series in progress that has none started.
+     * Of one library when [parentId] is given.
      */
     suspend fun continueWatching(limit: Int = 20, parentId: UUID? = null): List<ItemSummary> = coroutineScope {
-        val resume = async { resume(limit, parentId) }
+        // Several started episodes of a series fold into one card: fetch more so the list still fills up.
+        val resume = async { resume(limit * RESUME_PER_CARD, parentId) }
         val nextUp = async { nextUp(limit, parentId) }
-        val started = resume.await()
-        val seriesStarted = started.mapNotNullTo(HashSet()) { it.seriesId }
-        (started + nextUp.await().filter { it.seriesId !in seriesStarted && started.none { s -> s.id == it.id } }).take(limit)
+        (resume.await() + nextUp.await()).distinctBy { it.seriesId ?: it.id }.take(limit)
     }
 
     /** Watched movies and episodes, most recent first; of one library when [parentId] is given. */
@@ -82,5 +82,7 @@ class WatchRepository @Inject constructor(
 
     private companion object {
         const val FAVORITES_LIMIT = 500
+        /** Started items fetched per "continue watching" card. */
+        const val RESUME_PER_CARD = 3
     }
 }

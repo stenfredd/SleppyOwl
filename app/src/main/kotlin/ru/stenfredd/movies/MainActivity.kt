@@ -1,5 +1,6 @@
 package ru.stenfredd.movies
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -28,6 +29,7 @@ import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import dagger.hilt.android.AndroidEntryPoint
 import androidx.compose.runtime.produceState
+import kotlinx.coroutines.channels.Channel
 import ru.stenfredd.movies.core.data.LibraryRepository
 import ru.stenfredd.movies.core.data.model.LibraryType
 import ru.stenfredd.movies.core.jellyfin.JellyfinSession
@@ -48,6 +50,7 @@ import ru.stenfredd.movies.ui.settings.SettingsScreen
 import ru.stenfredd.movies.ui.player.PlayerScreen
 import ru.stenfredd.movies.ui.series.SeriesScreen
 import ru.stenfredd.movies.ui.login.LoginScreen
+import ru.stenfredd.movies.ui.menu.WatchMenuHost
 import ru.stenfredd.movies.ui.components.AppIcon
 import ru.stenfredd.movies.ui.shell.RailLibrary
 import ru.stenfredd.movies.ui.shell.Shell
@@ -67,6 +70,9 @@ class MainActivity : ComponentActivity() {
     /** Account → its libraries on the rail, see [Root]. */
     private var railLibraries: Pair<String, List<RailLibrary>> = "" to emptyList()
 
+    /** Launches while the app is already open (a card on the TV's home screen), see [onNewIntent]. */
+    private val launches = Channel<Intent>(Channel.CONFLATED)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -75,13 +81,39 @@ class MainActivity : ComponentActivity() {
                 var ready by remember { mutableStateOf(false) }
                 LaunchedEffect(Unit) {
                     val loggedIn = session.restore()
+                    // One that came during the restore is already [getIntent], read just below.
+                    launches.tryReceive()
                     stack += if (loggedIn) root(Tab.Home) else Screen.Login
-                    if (loggedIn) intentTarget()?.let(stack::addAll)
+                    if (loggedIn) intentTarget(intent)?.let(stack::addAll)
                     ready = true
                 }
-                if (ready) Navigation(stack)
+                if (ready) {
+                    // Long press on a card (or ✓ on the series page): mark watched / unwatched, over any screen.
+                    WatchMenuHost { Navigation(stack) }
+                    LaunchedEffect(Unit) {
+                        for (launch in launches) {
+                            // Signed out: the login screen stays, as at a cold start. No target (the app's icon): stay where the app was.
+                            if (session.session.value == null) continue
+                            val target = intentTarget(launch) ?: continue
+                            // As at a cold start, so Back leads to the app's home. An open player is released and saves its position.
+                            stack.clear()
+                            stack += root(Tab.Home)
+                            stack += target
+                        }
+                    }
+                }
             }
         }
+    }
+
+    /**
+     * The activity is `singleTask`: a launch from outside while it exists (the TV's home screen starts cards with
+     * `FLAG_ACTIVITY_NEW_TASK`) comes here instead of only bringing the old task with its old screen to the front.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        launches.trySend(intent)
     }
 
     @Composable
@@ -200,15 +232,16 @@ class MainActivity : ComponentActivity() {
      * Opens an item from the launch intent:
      * `adb shell am start -S -n ru.stenfredd.movies/.MainActivity --es item <id> [--ez play true] [--el start <ms>]
      * [--ei audio <index>] [--ei sub <index>]` (stream indexes as Jellyfin numbers them; with one given, the other is off),
-     * or a series page: `--es series <id> [--es episode <id>]`.
+     * or a series page: `--es series <id> [--es episode <id>]`. With both `item` (an episode) and `series`, the page
+     * under the player is the series page on that episode, as from the app's own cards (the TV's home screen does so).
      * Debug builds also take `--es engine exo|vlc` (implies play) and `--ez tour true [--ei tour_file N]` for the debug tour.
      */
-    private fun intentTarget(): List<Screen>? {
+    private fun intentTarget(intent: Intent): List<Screen>? {
         if (BuildConfig.DEBUG && intent.getBooleanExtra("tour", false)) return listOf(Screen.Tour(intent.getIntExtra("tour_file", 1) - 1))
-        intent.getStringExtra("series")?.let(::parseId)?.let { series ->
-            return listOf(Screen.Series(series, intent.getStringExtra("episode")?.let(::parseId)))
-        }
-        val id = intent.getStringExtra("item")?.let(::parseId) ?: return null
+        val series = intent.getStringExtra("series")?.let(::parseId)
+        val id = intent.getStringExtra("item")?.let(::parseId)
+        if (series != null && id == null) return listOf(Screen.Series(series, intent.getStringExtra("episode")?.let(::parseId)))
+        if (id == null) return null
         val engine = if (BuildConfig.DEBUG) intent.getStringExtra("engine")?.let(::EngineId) else null
         val play = engine != null || intent.getBooleanExtra("play", false)
         val streams = if (intent.hasExtra("audio") || intent.hasExtra("sub")) {
@@ -216,7 +249,7 @@ class MainActivity : ComponentActivity() {
         } else {
             null
         }
-        return listOf(Screen.Detail(id)) +
+        return listOf(series?.let { Screen.Series(it, id) } ?: Screen.Detail(id)) +
             if (play) listOf(Screen.Player(id, engine, intent.getLongExtra("start", 0), streams = streams)) else emptyList()
     }
 

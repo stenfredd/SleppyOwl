@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Рабочее название, пока нет настоящего. Меняется здесь и в логотипе (drawable/banner.xml, Shell.Logo). -->
-    <string name="app_name">Movies</string>
+    <!-- Название приложения. Логотип — design/logo/sleepyowl.png, картинки из него делает tools/logo/make_assets.py. -->
+    <string name="app_name">SleepyOwl</string>
 </resources>

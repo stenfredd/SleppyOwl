@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "ru.stenfredd.movies.core.jellyfin"
+    namespace = "ru.stenfredd.sleepyowl.core.jellyfin"
     compileSdk = 37
     defaultConfig { minSdk = 26 }
     compileOptions {

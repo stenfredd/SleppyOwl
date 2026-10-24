@@ -10,14 +10,14 @@ shot() { $A exec-out screencap -p > "$OUT/$1.png"; echo "$OUT/$1.png"; }
 install_debug() { ./gradlew :app:assembleDebug -q && $A install -r app/build/outputs/apk/debug/app-debug.apk; }
 # Открыть карточку (и сразу играть, если указан движок или play=1): play <itemId> [exo|vlc]
 play() {
-  if [ -n "$2" ]; then $A shell am start -S -n ru.stenfredd.movies/.MainActivity --es item "$1" --es engine "$2" >/dev/null
-  else $A shell am start -S -n ru.stenfredd.movies/.MainActivity --es item "$1" --ez play true >/dev/null; fi
+  if [ -n "$2" ]; then $A shell am start -S -n ru.stenfredd.sleepyowl/.MainActivity --es item "$1" --es engine "$2" >/dev/null
+  else $A shell am start -S -n ru.stenfredd.sleepyowl/.MainActivity --es item "$1" --ez play true >/dev/null; fi
 }
 # Журнал решений сессии воспроизведения
 plog() { $A logcat -d | grep -E " (I|W|E) PlaybackSession" | sed 's/^.*PlaybackSession: //' | cut -c1-300; }
 # Токен с ТВ (только debug-сборка: run-as читает DataStore приложения)
 # (текущий аккаунт: первый в списке — последний использованный)
-tv_token() { $A exec-out run-as ru.stenfredd.movies cat files/datastore/jellyfin_session.preferences_pb | grep -aoE '"token":"[0-9a-f]{32}"' | head -1 | grep -oE '[0-9a-f]{32}'; }
+tv_token() { $A exec-out run-as ru.stenfredd.sleepyowl cat files/datastore/jellyfin_session.preferences_pb | grep -aoE '"token":"[0-9a-f]{32}"' | head -1 | grep -oE '[0-9a-f]{32}'; }
 # Что играет на ТВ по данным сервера: название, позиция (с), PlayMethod. X-Emby-Token сервер 12.x не принимает.
 sess() {
   curl -s -H "Authorization: MediaBrowser Token=\"${TV_TOKEN:=$(tv_token)}\"" "http://192.168.1.10:8096/Sessions?activeWithinSeconds=60" |
@@ -33,7 +33,7 @@ vproxy() { $A logcat -d | grep "VLC proxy" | sed -E 's/^[0-9-]+ ([0-9:.]+).*VLC 
 # Замер плавности интерфейса (только на release-сборке!): ui_bench [right|down] [N]
 # Листает ряд (или экран) вперёд и назад N раз и печатает перцентили кадра и GPU, затем разбивку по фазам.
 ui_bench() {
-  local dir=${1:-right} n=${2:-8} back P=ru.stenfredd.movies
+  local dir=${1:-right} n=${2:-8} back P=ru.stenfredd.sleepyowl
   [ "$dir" = right ] && back=left || back=up
   $A shell dumpsys gfxinfo $P reset >/dev/null
   for i in $(seq 1 $n); do $A shell input keyevent DPAD_${dir^^}; sleep 0.35; done
@@ -44,8 +44,8 @@ ui_bench() {
 # Release + сразу компиляция по baseline profile (иначе ТВ скомпилирует его только при фоновом обслуживании).
 install_release() {
   ./gradlew :app:assembleRelease -q && $A install -r app/build/outputs/apk/release/app-release.apk || return
-  $A shell am broadcast -a androidx.profileinstaller.action.INSTALL_PROFILE ru.stenfredd.movies/androidx.profileinstaller.ProfileInstallReceiver >/dev/null
-  $A shell cmd package compile -f -m speed-profile ru.stenfredd.movies
+  $A shell am broadcast -a androidx.profileinstaller.action.INSTALL_PROFILE ru.stenfredd.sleepyowl/androidx.profileinstaller.ProfileInstallReceiver >/dev/null
+  $A shell cmd package compile -f -m speed-profile ru.stenfredd.sleepyowl
 }
 # Снять baseline profile заново на ТВ (~8 мин, ТВ должен быть с выполненным входом) и положить в app/src/release.
 # Gradle может закончить с «failing tests» при успешном прогоне — тогда профиль копируется вручную.

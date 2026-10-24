@@ -3,7 +3,7 @@
     <!-- Фон приложения — фон окна: без белой вспышки до первого кадра Compose, и экраны не рисуют свой фон.
          Сплошной цвет: GPU заливает его почти бесплатно. Сетка точек из макета стоила ~5 мс каждого кадра
          на тестовом ТВ (он перерисовывает весь экран на каждом кадре) — убрана. -->
-    <style name="Theme.Movies" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+    <style name="Theme.SleepyOwl" parent="@android:style/Theme.DeviceDefault.NoActionBar">
         <item name="android:windowBackground">@color/background</item>
         <item name="android:colorBackground">@color/background</item>
     </style>

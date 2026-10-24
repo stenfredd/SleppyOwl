@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "ru.stenfredd.movies.playback.core"
+    namespace = "ru.stenfredd.sleepyowl.playback.core"
     compileSdk = 37
     defaultConfig { minSdk = 26 }
     compileOptions {

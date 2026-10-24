@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "ru.stenfredd.movies.playback.vlc"
+    namespace = "ru.stenfredd.sleepyowl.playback.vlc"
     compileSdk = 37
     defaultConfig { minSdk = 26 }
     compileOptions {

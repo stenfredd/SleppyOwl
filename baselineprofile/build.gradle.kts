@@ -6,7 +6,7 @@ plugins {
 // Generates the app's baseline profile on a connected device (the test TV, logged in):
 // ./gradlew :app:generateReleaseBaselineProfile
 android {
-    namespace = "ru.stenfredd.movies.baselineprofile"
+    namespace = "ru.stenfredd.sleepyowl.baselineprofile"
     compileSdk = 37
     defaultConfig {
         minSdk = 28

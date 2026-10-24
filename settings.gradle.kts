@@ -14,7 +14,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "movies"
+rootProject.name = "sleepyowl"
 
 include(":app")
 include(":baselineprofile")

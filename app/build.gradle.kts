@@ -7,11 +7,11 @@ plugins {
 }
 
 android {
-    namespace = "ru.stenfredd.movies"
+    namespace = "ru.stenfredd.sleepyowl"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "ru.stenfredd.movies"
+        applicationId = "ru.stenfredd.sleepyowl"
         minSdk = 26
         targetSdk = 36
         versionCode = 1

@@ -13,8 +13,8 @@ import androidx.media3.extractor.avi.AviExtractor
 import androidx.media3.extractor.mkv.MatroskaExtractor
 import androidx.media3.extractor.text.SubtitleParser
 import androidx.media3.extractor.ts.PsExtractor
+import ru.stenfredd.sleepyowl.core.common.Log
 import ru.stenfredd.sleepyowl.playback.exo.ps.DvdPsExtractor
-import timber.log.Timber
 
 /**
  * [DefaultExtractorsFactory] with fixes: [MatroskaExtractor] wrapped in [SeekHeadChainExtractor], [PsExtractor]
@@ -93,7 +93,7 @@ internal class SeekHeadChainExtractor(private val delegate: Extractor) : Extract
             Phase.PROBE -> {
                 phase = Phase.PASS
                 if (input.position == 0L) {
-                    val target = runCatching { probe(input) }.onFailure { Timber.w(it, "MKV SeekHead probe failed") }.getOrNull()
+                    val target = runCatching { probe(input) }.onFailure { Log.w(it, "MKV SeekHead probe failed") }.getOrNull()
                     input.resetPeekPosition()
                     if (target != null) {
                         phase = Phase.READ_TAIL
@@ -104,7 +104,7 @@ internal class SeekHeadChainExtractor(private val delegate: Extractor) : Extract
             }
             Phase.READ_TAIL -> {
                 phase = Phase.PASS
-                runCatching { readTail(input) }.onFailure { Timber.w(it, "MKV tail SeekHead read failed") }
+                runCatching { readTail(input) }.onFailure { Log.w(it, "MKV tail SeekHead read failed") }
                 seekPosition.position = 0
                 return Extractor.RESULT_SEEK
             }
@@ -151,7 +151,7 @@ internal class SeekHeadChainExtractor(private val delegate: Extractor) : Extract
             Patch(link.idOffset, byteArrayOf(0x1C, 0x53, 0xBB.toByte(), 0x6B)),
             Patch(link.positionOffset, ByteArray(size) { i -> (cues.position ushr (8 * (size - 1 - i))).toByte() }),
         )
-        Timber.i("MKV SeekHead chain: Cues at %d via second SeekHead, first SeekHead patched", segmentStart + cues.position)
+        Log.i("MKV SeekHead chain: Cues at %d via second SeekHead, first SeekHead patched", segmentStart + cues.position)
     }
 
     private fun parseSeekHead(r: EbmlReader, size: Long): List<SeekEntry> {

@@ -14,7 +14,7 @@ import androidx.media3.extractor.ExtractorOutput
 import androidx.media3.extractor.PositionHolder
 import androidx.media3.extractor.SeekMap
 import androidx.media3.extractor.TrackOutput
-import timber.log.Timber
+import ru.stenfredd.sleepyowl.core.common.Log
 import java.io.EOFException
 import java.nio.ByteBuffer
 
@@ -113,7 +113,7 @@ internal class AviAudioFramingExtractor(private val delegate: Extractor) : Extra
             while (pendingLength - i >= HEADER_BYTES) {
                 val frameSize = frameSize(codec, i)
                 if (frameSize <= 0) {
-                    if (resyncs++ % 1000 == 0L) Timber.w("AVI %s: no sync word, skipping a byte (%d)", codec, resyncs)
+                    if (resyncs++ % 1000 == 0L) Log.w("AVI %s: no sync word, skipping a byte (%d)", codec, resyncs)
                     i++
                     continue
                 }

@@ -7,7 +7,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
-import timber.log.Timber
+import ru.stenfredd.sleepyowl.core.common.Log
 import java.io.BufferedInputStream
 import java.io.Closeable
 import java.io.IOException
@@ -88,7 +88,7 @@ internal class LoopbackProxy(private val client: OkHttpClient) : Closeable {
             val socket = try {
                 server.accept()
             } catch (e: IOException) {
-                if (!closed) Timber.w(e, "VLC proxy: accept failed")
+                if (!closed) Log.w(e, "VLC proxy: accept failed")
                 break
             }
             val connection = Connection(socket, requestCounter.incrementAndGet())
@@ -126,7 +126,7 @@ internal class LoopbackProxy(private val client: OkHttpClient) : Closeable {
                 call?.cancel()
                 runCatching { socket.close() }
                 connections -= this
-                Timber.d("VLC proxy #%d %s (%d ms)", id, summary, SystemClock.elapsedRealtime() - started)
+                Log.d("VLC proxy #%d %s (%d ms)", id, summary, SystemClock.elapsedRealtime() - started)
             }
         }
 

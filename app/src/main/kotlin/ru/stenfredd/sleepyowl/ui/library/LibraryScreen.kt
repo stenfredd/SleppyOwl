@@ -43,9 +43,9 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.distinctUntilChanged
+import org.koin.compose.viewmodel.koinViewModel
 import ru.stenfredd.sleepyowl.ui.Screen
 import ru.stenfredd.sleepyowl.ui.components.AnchoredScroll
 import ru.stenfredd.sleepyowl.ui.components.AnchoredScrolling
@@ -76,7 +76,7 @@ import ru.stenfredd.sleepyowl.ui.theme.AppType
  * thousands of items only composes what is on screen. Vertical scrolling is [AnchoredScrolling], as on home.
  */
 @Composable
-fun LibraryScreen(onOpen: (Screen) -> Unit, vm: LibraryViewModel = hiltViewModel()) {
+fun LibraryScreen(onOpen: (Screen) -> Unit, vm: LibraryViewModel = koinViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     val focus = rememberScreenFocus()
     val ready = !state.loading && state.error == null && state.tiles.isNotEmpty()

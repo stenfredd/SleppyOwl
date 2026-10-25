@@ -45,9 +45,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
+import org.koin.compose.viewmodel.koinViewModel
 import ru.stenfredd.sleepyowl.ui.Screen
 import ru.stenfredd.sleepyowl.ui.components.AnchoredScrolling
 import ru.stenfredd.sleepyowl.ui.components.AppIcon
@@ -75,7 +75,7 @@ import ru.stenfredd.sleepyowl.ui.theme.AppType
  * Typing on a physical keyboard (or digits on the remote) works anywhere on the screen.
  */
 @Composable
-fun SearchScreen(onOpen: (Screen) -> Unit, vm: SearchViewModel = hiltViewModel()) {
+fun SearchScreen(onOpen: (Screen) -> Unit, vm: SearchViewModel = koinViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     val focus = rememberScreenFocus()
     val open = { key: String -> vm.open(key)?.let(onOpen) ?: Unit }

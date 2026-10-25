@@ -3,7 +3,6 @@ package ru.stenfredd.sleepyowl
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
@@ -15,6 +14,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import org.json.JSONArray
 import org.json.JSONObject
+import ru.stenfredd.sleepyowl.core.common.Log
 import ru.stenfredd.sleepyowl.core.data.ImageUrls
 import ru.stenfredd.sleepyowl.core.data.SessionCache
 import ru.stenfredd.sleepyowl.core.data.WatchRepository
@@ -23,10 +23,7 @@ import ru.stenfredd.sleepyowl.core.data.model.ItemSummary
 import ru.stenfredd.sleepyowl.core.jellyfin.JellyfinSession
 import ru.stenfredd.sleepyowl.ui.model.landscape
 import ru.stenfredd.sleepyowl.ui.model.remaining
-import timber.log.Timber
 import java.util.UUID
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlin.math.roundToInt
 
 /**
@@ -41,9 +38,8 @@ import kotlin.math.roundToInt
  * state changes ([SessionCache.invalidations]: playback stopped or left with Home, marked watched or favourite).
  * Progress made on other devices shows up only at the next start: no periodic background work on this TV.
  */
-@Singleton
-class LauncherFeed @Inject constructor(
-    @ApplicationContext private val context: Context,
+class LauncherFeed(
+    private val context: Context,
     private val session: JellyfinSession,
     private val cache: SessionCache,
     private val watch: WatchRepository,
@@ -77,7 +73,7 @@ class LauncherFeed @Inject constructor(
                 throw e
             } catch (e: Exception) {
                 // The shell keeps the previous list: better than an empty row.
-                Timber.w(e, "Launcher feed: not updated")
+                Log.w(e, "Launcher feed: not updated")
                 return
             }
         }
@@ -87,12 +83,12 @@ class LauncherFeed @Inject constructor(
         try {
             context.contentResolver.call(Uri.parse("content://$AUTHORITY"), METHOD, json, null)
             lastSent = json
-            Timber.i("Launcher feed: sent %d cards", items.size)
+            Log.i("Launcher feed: sent %d cards", items.size)
         } catch (e: IllegalArgumentException) {
-            Timber.d("Launcher feed: no shell (%s)", e.message)
+            Log.d("Launcher feed: no shell (%s)", e.message)
         } catch (e: SecurityException) {
             // The shell takes lists only from apps signed with its key: sign both with the same release key.
-            Timber.w(e, "Launcher feed: refused by the shell")
+            Log.w(e, "Launcher feed: refused by the shell")
         }
     }
 

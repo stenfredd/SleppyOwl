@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -16,20 +17,21 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.tv.material3.Button
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Text
 import org.jellyfin.sdk.model.api.MediaStreamType
 import org.jellyfin.sdk.model.api.PlayMethod
 import ru.stenfredd.sleepyowl.playback.api.Codecs
 import ru.stenfredd.sleepyowl.playback.api.DolbyVisionSwitchable
 import ru.stenfredd.sleepyowl.playback.api.EngineId
 import ru.stenfredd.sleepyowl.playback.api.VideoPathSwitchable
+import ru.stenfredd.sleepyowl.playback.api.encodingName
 import ru.stenfredd.sleepyowl.playback.core.PlaybackSession
 import ru.stenfredd.sleepyowl.playback.core.PlaybackUiState
 import ru.stenfredd.sleepyowl.playback.core.describe
 import ru.stenfredd.sleepyowl.playback.exo.ExoEngineProvider
 import ru.stenfredd.sleepyowl.playback.vlc.VlcEngineProvider
+import ru.stenfredd.sleepyowl.ui.DebugText
+import ru.stenfredd.sleepyowl.ui.components.SecondaryButton
+import ru.stenfredd.sleepyowl.ui.theme.AppType
 
 /*
  * Debug builds only: the prototype's numbered playback variants (badge in the corner, digit keys 0–9, MENU opens the
@@ -108,18 +110,18 @@ internal fun VariantBadge(state: PlaybackUiState, session: PlaybackSession, tour
         horizontalAlignment = Alignment.End,
     ) {
         tour?.let {
-            Text("Отладка: файл ${it.number} из ${it.total}", fontSize = 14.sp, color = Color(0xFF80CBC4))
+            DebugText("Отладка: файл ${it.number} из ${it.total}", fontSize = 14.sp, color = Color(0xFF80CBC4))
         }
-        Text(
+        DebugText(
             "${currentVariantCode(state, session)}  $head",
             fontSize = 26.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, color = Color(0xFFFFD54F),
         )
-        Text(
+        DebugText(
             "$mode · ${PlayerLabels.time(state.positionMs)} · пропуски ${state.stats.droppedFrames}",
             fontSize = 14.sp, fontFamily = FontFamily.Monospace, color = Color.White,
         )
-        Text(tour?.title ?: state.title, fontSize = if (tour != null) 16.sp else 12.sp, color = Color.LightGray)
-        tour?.let { Text(it.label, fontSize = 14.sp, color = Color.White, modifier = Modifier.widthIn(max = 900.dp)) }
+        DebugText(tour?.title ?: state.title, fontSize = if (tour != null) 16.sp else 12.sp, color = Color.LightGray)
+        tour?.let { DebugText(it.label, Modifier.widthIn(max = 900.dp), fontSize = 14.sp, color = Color.White) }
     }
 }
 
@@ -137,12 +139,12 @@ internal fun DebugPanel(state: PlaybackUiState, vm: PlayerViewModel, modifier: M
         add("Пропущено кадров: ${state.stats.droppedFrames}")
         state.stats.extra.forEach { (k, v) -> add("$k: $v") }
         state.ranking.forEach { (id, verdict) -> add("· $id: ${verdict.describe()}") }
-        add("Устройство: ${caps.manufacturer} ${caps.model} (${caps.soc}), HDR ${caps.displayHdrTypes}, passthrough ${caps.passthroughEncodings.map(Codecs::encodingName)}")
+        add("Устройство: ${caps.manufacturer} ${caps.model} (${caps.soc}), HDR ${caps.displayHdrTypes}, passthrough ${caps.passthroughEncodings.map { Codecs.encodingName(it) }}")
         add("— журнал —")
         addAll(state.history.takeLast(8))
     }
     Column(modifier.width(900.dp).background(Color(0xB0000000)).padding(12.dp)) {
-        lines.forEach { Text(it, fontSize = 11.sp, color = Color.White, lineHeight = 13.sp) }
+        lines.forEach { DebugText(it, fontSize = 11.sp, color = Color.White, lineHeight = 13.sp) }
     }
 }
 
@@ -160,39 +162,35 @@ internal fun DebugMenu(
         modifier.fillMaxHeight().width(520.dp).background(Color(0xE0101010)).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        item { Text("Вариант (сейчас ${currentVariantCode(state, session)})", style = MaterialTheme.typography.titleMedium) }
+        item { BasicText("Вариант (сейчас ${currentVariantCode(state, session)})", style = AppType.Section) }
         val variants = listOf(0 to "Авто") + Variant.entries.map { it.number to it.label } + listOf(TRANSCODE_KEY to "Транскод сервером (текущим движком)")
         variants.forEach { (number, label) ->
             item {
-                Button(onClick = { applyVariant(number, session); close() }) { Text("$number  $label") }
+                SecondaryButton("$number  $label", onClick = { applyVariant(number, session); close() })
             }
         }
-        item { Text("Аудио", style = MaterialTheme.typography.titleMedium) }
+        item { BasicText("Аудио", style = AppType.Section) }
         source.mediaStreams.orEmpty().filter { it.type == MediaStreamType.AUDIO }.forEach { s ->
             item {
-                Button(onClick = { session.selectAudio(s.index); close() }) {
-                    Text(mark(state.selection.audioStreamIndex == s.index) + (s.displayTitle ?: s.codec.orEmpty()))
-                }
+                SecondaryButton(mark(state.selection.audioStreamIndex == s.index) + (s.displayTitle ?: s.codec.orEmpty()), onClick = { session.selectAudio(s.index); close() })
             }
         }
-        item { Text("Субтитры", style = MaterialTheme.typography.titleMedium) }
+        item { BasicText("Субтитры", style = AppType.Section) }
         item {
-            Button(onClick = { session.selectSubtitle(null); close() }) { Text(mark(state.selection.subtitleStreamIndex == null) + "Выключены") }
+            SecondaryButton(mark(state.selection.subtitleStreamIndex == null) + "Выключены", onClick = { session.selectSubtitle(null); close() })
         }
         source.mediaStreams.orEmpty().filter { it.type == MediaStreamType.SUBTITLE }.forEach { s ->
             item {
-                Button(onClick = { session.selectSubtitle(s.index); close() }) {
-                    Text(mark(state.selection.subtitleStreamIndex == s.index) + (s.displayTitle ?: s.codec.orEmpty()))
-                }
+                SecondaryButton(mark(state.selection.subtitleStreamIndex == s.index) + (s.displayTitle ?: s.codec.orEmpty()), onClick = { session.selectSubtitle(s.index); close() })
             }
         }
-        item { Text("Движок", style = MaterialTheme.typography.titleMedium) }
+        item { BasicText("Движок", style = AppType.Section) }
         vm.selector.engines.forEach { p ->
-            item { Button(onClick = { session.switchEngine(p.id); close() }) { Text(mark(state.engine == p.id) + p.displayName) } }
+            item { SecondaryButton(mark(state.engine == p.id) + p.displayName, onClick = { session.switchEngine(p.id); close() }) }
         }
-        item { Button(onClick = { session.forceTranscode(); close() }) { Text("   Транскод на сервере") } }
+        item { SecondaryButton("   Транскод на сервере", onClick = { session.forceTranscode(); close() }) }
         (session.activeEngine as? VideoPathSwitchable)?.let { engine ->
-            item { Text("Вывод видео", style = MaterialTheme.typography.titleMedium) }
+            item { BasicText("Вывод видео", style = AppType.Section) }
             val modes = listOf(
                 VideoPathSwitchable.Mode.AUTO to "Авто (сейчас: ${if (engine.usingGpuPath) "через GPU" else "видеослой ТВ"})",
                 VideoPathSwitchable.Mode.VIDEO_PLANE to "Видеослой ТВ (с HDR, обработка ТВ)",
@@ -200,9 +198,7 @@ internal fun DebugMenu(
             )
             modes.forEach { (mode, label) ->
                 item {
-                    Button(onClick = { engine.setVideoPathMode(mode); close() }) {
-                        Text(mark(engine.videoPathMode == mode) + label)
-                    }
+                    SecondaryButton(mark(engine.videoPathMode == mode) + label, onClick = { engine.setVideoPathMode(mode); close() })
                 }
             }
         }

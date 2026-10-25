@@ -1,25 +1,21 @@
 plugins {
-    alias(libs.plugins.android.library)
+    alias(libs.plugins.kotlin.multiplatform)
+    alias(libs.plugins.android.kotlin.multiplatform.library)
     alias(libs.plugins.kotlin.serialization)
-    alias(libs.plugins.ksp)
-    alias(libs.plugins.hilt)
 }
 
-android {
-    namespace = "ru.stenfredd.sleepyowl.core.data"
-    compileSdk = 37
-    defaultConfig { minSdk = 26 }
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+kotlin {
+    android {
+        namespace = "ru.stenfredd.sleepyowl.core.data"
+        compileSdk = 37
+        minSdk = 26
     }
-}
+    jvm("desktop")
 
-dependencies {
-    api(project(":core:jellyfin"))
-    implementation(libs.kotlinx.serialization.json)
-    implementation(libs.androidx.datastore.preferences)
-    implementation(libs.hilt.android)
-    ksp(libs.hilt.compiler)
-    implementation(libs.timber)
+    sourceSets {
+        commonMain.dependencies {
+            api(project(":core:jellyfin"))
+            implementation(libs.kotlinx.serialization.json)
+        }
+    }
 }

@@ -7,7 +7,7 @@ import androidx.compose.runtime.Immutable
 data class Component(val name: String, val note: String?, val license: String, val asset: String)
 
 /** "О приложении": the app itself first, then what it is built from (playback first: it carries the copyleft licences). */
-internal object Licenses {
+object Licenses {
     val app = Component("SleepyOwl", "это приложение", "GPL-3.0", "GPL-3.0.txt")
 
     val components = listOf(
@@ -20,7 +20,7 @@ internal object Licenses {
         Component("libass", "внутри ass-media", "ISC", "ISC.txt"),
         Component("Jetpack Compose, AndroidX", "Google, интерфейс", "Apache 2.0", "Apache-2.0.txt"),
         Component("Kotlin, kotlinx", "JetBrains", "Apache 2.0", "Apache-2.0.txt"),
-        Component("Dagger Hilt", "Google", "Apache 2.0", "Apache-2.0.txt"),
+        Component("Koin", "Kotzilla, связывание компонентов", "Apache 2.0", "Apache-2.0.txt"),
         Component("Coil", "загрузка картинок", "Apache 2.0", "Apache-2.0.txt"),
         Component("OkHttp", "Square, сеть", "Apache 2.0", "Apache-2.0.txt"),
         Component("ZXing", "QR-код для Quick Connect", "Apache 2.0", "Apache-2.0.txt"),

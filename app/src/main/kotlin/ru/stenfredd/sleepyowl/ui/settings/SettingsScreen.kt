@@ -50,10 +50,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import org.koin.compose.viewmodel.koinViewModel
 import ru.stenfredd.sleepyowl.core.data.LanguageSettings
 import ru.stenfredd.sleepyowl.core.data.SubtitleMode
 import ru.stenfredd.sleepyowl.core.jellyfin.Account
@@ -107,7 +107,7 @@ fun SettingsScreen(
     onSignedOut: () -> Unit,
     /** Another saved account became current: the app restarts on its home screen. */
     onSwitched: () -> Unit,
-    vm: SettingsViewModel = hiltViewModel(),
+    vm: SettingsViewModel = koinViewModel(),
 ) {
     val focus = rememberScreenFocus()
     var section by rememberSaveable { mutableStateOf(Section.Playback) }

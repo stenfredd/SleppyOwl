@@ -21,7 +21,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,18 +50,8 @@ import ru.stenfredd.sleepyowl.ui.components.FocusStyle
 import ru.stenfredd.sleepyowl.ui.components.MinimalScrolling
 import ru.stenfredd.sleepyowl.ui.components.SecondaryButton
 import ru.stenfredd.sleepyowl.ui.components.focusCard
-import ru.stenfredd.sleepyowl.ui.details.TrackOption
 import ru.stenfredd.sleepyowl.ui.theme.AppColors
 import ru.stenfredd.sleepyowl.ui.theme.AppType
-
-enum class PlayerPanel { Audio, Subtitles, Quality, Info }
-
-/** One choice in a panel list or chip row; [onPick] is applied by the screen. */
-@Immutable
-internal data class PanelChoice(val key: String, val label: String, val detail: String?, val selected: Boolean, val swatch: Color? = null)
-
-@Immutable
-internal data class PanelGroup(val key: String, val title: String, val choices: List<PanelChoice>)
 
 private object PanelColors {
     val Background = Color(0xFF10121A)
@@ -301,29 +290,3 @@ internal fun InfoRows(rows: List<InfoRow>) {
 internal fun PanelCloseButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
     SecondaryButton("Закрыть", onClick = onClick, modifier = modifier)
 }
-
-/** Size, colour and background choices of text subtitles, for the player's panel and the series tray. */
-internal object SubtitleChoices {
-    private val colors = listOf(SubtitleStyle.WHITE to "Белый", SubtitleStyle.YELLOW to "Жёлтый", SubtitleStyle.LIGHT_BLUE to "Голубой")
-    private val backgrounds = listOf(SubtitleStyle.Background.NONE to "Нет", SubtitleStyle.Background.SHADOW to "Тень", SubtitleStyle.Background.BOX to "Плашка")
-
-    fun sizes(style: SubtitleStyle) = SubtitleStyle.Size.entries.map { PanelChoice("size/$it", it.name, null, it == style.size) }
-
-    fun colors(style: SubtitleStyle) = colors.map { (argb, name) -> PanelChoice("color/$argb", name, null, argb == style.color, Color(argb)) }
-
-    fun backgrounds(style: SubtitleStyle) = backgrounds.map { (bg, name) -> PanelChoice("bg/$bg", name, null, bg == style.background) }
-
-    /** [style] with [choice] (one of the lists above) applied. */
-    fun apply(style: SubtitleStyle, choice: PanelChoice): SubtitleStyle {
-        val value = choice.key.substringAfter('/')
-        return when (choice.key.substringBefore('/')) {
-            "size" -> style.copy(size = SubtitleStyle.Size.valueOf(value))
-            "color" -> style.copy(color = value.toInt())
-            "bg" -> style.copy(background = SubtitleStyle.Background.valueOf(value))
-            else -> style
-        }
-    }
-}
-
-internal fun List<TrackOption>.toChoices(selected: Int?): List<PanelChoice> =
-    map { PanelChoice(it.key, it.label, it.detail, it.index == selected) }

@@ -66,9 +66,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
+import org.koin.compose.viewmodel.koinViewModel
+import org.koin.core.parameter.parametersOf
 import ru.stenfredd.sleepyowl.ui.Screen
 import ru.stenfredd.sleepyowl.ui.components.AppIcon
 import ru.stenfredd.sleepyowl.ui.components.CircleButton
@@ -104,7 +105,7 @@ import kotlin.math.roundToInt
 fun SeriesScreen(
     screen: Screen.Series,
     onOpen: (Screen) -> Unit,
-    vm: SeriesViewModel = hiltViewModel<SeriesViewModel, SeriesViewModel.Factory>(creationCallback = { it.create(screen.seriesId) }),
+    vm: SeriesViewModel = koinViewModel { parametersOf(screen.seriesId) },
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val focus = rememberScreenFocus()

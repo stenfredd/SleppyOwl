@@ -20,8 +20,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import org.koin.compose.viewmodel.koinViewModel
 import ru.stenfredd.sleepyowl.ui.Screen
 import ru.stenfredd.sleepyowl.ui.components.AnchoredScrolling
 import ru.stenfredd.sleepyowl.ui.components.Chip
@@ -39,7 +39,7 @@ import ru.stenfredd.sleepyowl.ui.theme.AppType
 
 /** Favourites tab (mockup screen «Избранное»): title with the count, library filter chips, grid of posters. */
 @Composable
-fun FavoritesScreen(onOpen: (Screen) -> Unit, vm: FavoritesViewModel = hiltViewModel()) {
+fun FavoritesScreen(onOpen: (Screen) -> Unit, vm: FavoritesViewModel = koinViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     val focus = rememberScreenFocus()
     val grid = rememberLazyGridState()

@@ -18,9 +18,11 @@ rootProject.name = "sleepyowl"
 
 include(":app")
 include(":baselineprofile")
+include(":core:common")
 include(":core:jellyfin")
 include(":core:data")
 include(":playback:api")
 include(":playback:core")
 include(":playback:engine-exo")
 include(":playback:engine-vlc")
+include(":ui:shared")

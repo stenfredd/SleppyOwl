@@ -1,5 +1,6 @@
 package ru.stenfredd.sleepyowl.baselineprofile
 
+import androidx.benchmark.macro.MacrobenchmarkScope
 import androidx.benchmark.macro.junit4.BaselineProfileRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -8,6 +9,7 @@ import androidx.test.uiautomator.Until
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.util.regex.Pattern
 
 /**
  * Records which code the app runs on its main path, so it is compiled ahead of time on install instead of being
@@ -100,10 +102,15 @@ class BaselineProfileGenerator {
         press { device.pressDPadDown() }
         press { device.pressDPadUp() }
 
-        // Settings (below the tabs): through the sections (each is shown after a pause), along a row of choices.
-        // Nothing is picked: the choices are saved at once.
+        // Settings (below the tabs and the server's libraries, as many as the server has): down the rail until it has
+        // focus. Then through the sections (each is shown after a pause), along a row of choices. Nothing is picked:
+        // the choices are saved at once.
+        // The presses are counted from the rail's labels rather than checked one by one: on the first, uncompiled pass
+        // the app lags behind the keys, and a check after each press would overshoot.
         press { device.pressBack() }
-        press { device.pressDPadDown() }
+        check(device.wait(Until.hasObject(By.text("Настройки")), 5_000)) { "Rail did not open" }
+        repeat(railStepsToSettings()) { press { device.pressDPadDown() } }
+        check(device.wait(Until.hasObject(By.focused(true).hasDescendant(By.text("Настройки"))), 10_000)) { "Settings not focused on the rail" }
         press { device.pressDPadCenter() }
         Thread.sleep(1_500)
         repeat(4) {
@@ -139,6 +146,19 @@ class BaselineProfileGenerator {
         press { device.pressBack() }
         press { device.pressBack() }
         Thread.sleep(1_000)
+    }
+
+    /** Rail items from "Избранное" down to "Настройки": the labels in between are the server's libraries. */
+    private fun MacrobenchmarkScope.railStepsToSettings(): Int {
+        // The leftmost of each: a screen may have a title of the same name.
+        fun label(text: String) = device.findObjects(By.text(text)).minBy { it.visibleBounds.left }.visibleBounds
+        val favorites = label("Избранное")
+        val settings = label("Настройки")
+        val libraries = device.findObjects(By.text(Pattern.compile(".+"))).count {
+            val b = it.visibleBounds
+            b.left == favorites.left && b.centerY() > favorites.centerY() && b.centerY() < settings.centerY()
+        }
+        return libraries + 1
     }
 
     private inline fun press(action: () -> Unit) {

@@ -59,6 +59,8 @@ import org.jellyfin.sdk.model.api.MediaStreamType
 import org.jellyfin.sdk.model.api.PlayMethod
 import org.jellyfin.sdk.model.api.VideoRange
 import org.jellyfin.sdk.model.api.VideoRangeType
+import ru.stenfredd.sleepyowl.core.common.Log
+import ru.stenfredd.sleepyowl.playback.api.AndroidVideoOutput
 import ru.stenfredd.sleepyowl.playback.api.Codecs
 import ru.stenfredd.sleepyowl.playback.api.DolbyVisionSwitchable
 import ru.stenfredd.sleepyowl.playback.api.EngineError
@@ -71,10 +73,10 @@ import ru.stenfredd.sleepyowl.playback.api.SubtitleStyle
 import ru.stenfredd.sleepyowl.playback.api.SubtitleStyleable
 import ru.stenfredd.sleepyowl.playback.api.VideoPathSwitchable
 import ru.stenfredd.sleepyowl.playback.api.embeddedOrdinal
+import ru.stenfredd.sleepyowl.playback.api.encodingName
 import ru.stenfredd.sleepyowl.playback.api.videoStream
-import timber.log.Timber
 
-class ExoEngine(context: Context) : PlaybackEngine, VideoPathSwitchable, DolbyVisionSwitchable, SubtitleStyleable {
+class ExoEngine(context: Context) : PlaybackEngine, AndroidVideoOutput, VideoPathSwitchable, DolbyVisionSwitchable, SubtitleStyleable {
     override val id = ExoEngineProvider.ID
 
     /** See [gpuPathFor]: only TVs known to over-process SDR on the video plane. */
@@ -202,19 +204,19 @@ class ExoEngine(context: Context) : PlaybackEngine, VideoPathSwitchable, DolbyVi
         // Not visible as dropped frames: AC3-in-AVI / MPEG-PS style timing problems show up as these.
         override fun onAudioUnderrun(eventTime: AnalyticsListener.EventTime, bufferSize: Int, bufferSizeMs: Long, elapsedSinceLastFeedMs: Long) {
             audioUnderruns++
-            Timber.w("Exo audio underrun #%d (%d ms since last feed)", audioUnderruns, elapsedSinceLastFeedMs)
+            Log.w("Exo audio underrun #%d (%d ms since last feed)", audioUnderruns, elapsedSinceLastFeedMs)
             _stats.update { it.copy(extra = it.extra + ("срывы звука" to audioUnderruns.toString())) }
         }
         override fun onBandwidthEstimate(eventTime: AnalyticsListener.EventTime, totalLoadTimeMs: Int, totalBytesLoaded: Long, bitrateEstimate: Long) {
-            Timber.d("Exo bandwidth: %.1f Mbit/s (%d KB in %d ms)", bitrateEstimate / 1e6, totalBytesLoaded / 1024, totalLoadTimeMs)
+            Log.d("Exo bandwidth: %.1f Mbit/s (%d KB in %d ms)", bitrateEstimate / 1e6, totalBytesLoaded / 1024, totalLoadTimeMs)
         }
         override fun onAudioSinkError(eventTime: AnalyticsListener.EventTime, audioSinkError: Exception) {
-            Timber.w(audioSinkError, "Exo audio sink error")
+            Log.w(audioSinkError, "Exo audio sink error")
         }
         override fun onPlaybackStateChanged(eventTime: AnalyticsListener.EventTime, state: Int) {
             if (state != Player.STATE_BUFFERING || eventTime.realtimeMs - startedAtMs < 3000) return
             rebuffers++
-            Timber.w("Exo rebuffering #%d at %d ms", rebuffers, eventTime.currentPlaybackPositionMs)
+            Log.w("Exo rebuffering #%d at %d ms", rebuffers, eventTime.currentPlaybackPositionMs)
             _stats.update { it.copy(extra = it.extra + ("буферизаций" to rebuffers.toString())) }
         }
         override fun onAudioTrackInitialized(eventTime: AnalyticsListener.EventTime, audioTrackConfig: AudioSink.AudioTrackConfig) {
@@ -270,7 +272,7 @@ class ExoEngine(context: Context) : PlaybackEngine, VideoPathSwitchable, DolbyVi
             if (lastRendered >= 0) {
                 val fps = (rendered - lastRendered) * 1000f / FRAME_RATE_SAMPLE_MS
                 val skipped = counters.skippedOutputBufferCount + counters.skippedInputBufferCount
-                Timber.d("Exo video: %.1f fps shown, skipped %d, dropped %d", fps, skipped - lastSkipped, counters.droppedBufferCount)
+                Log.d("Exo video: %.1f fps shown, skipped %d, dropped %d", fps, skipped - lastSkipped, counters.droppedBufferCount)
                 _stats.update { it.copy(extra = it.extra + ("кадров/с на экране" to "%.1f".format(fps)) + ("пропущено декодером" to skipped.toString())) }
                 lastSkipped = skipped
             }
@@ -325,7 +327,7 @@ class ExoEngine(context: Context) : PlaybackEngine, VideoPathSwitchable, DolbyVi
         if (gpu) player.setVideoTextureView(textureView) else player.setVideoSurfaceView(surfaceView)
         val label = (if (gpu) "через GPU (TextureView)" else "видеослой ТВ (SurfaceView)") +
             if (pathMode == VideoPathSwitchable.Mode.AUTO) ", авто" else ", вручную"
-        Timber.i("Exo video output: %s", label)
+        Log.i("Exo video output: %s", label)
         _stats.update { it.copy(extra = it.extra + ("вывод видео" to label)) }
     }
 
@@ -425,7 +427,7 @@ class ExoEngine(context: Context) : PlaybackEngine, VideoPathSwitchable, DolbyVi
             textGroups.filterNot { it.getTrackFormat(0).id?.contains(EXTERNAL_PREFIX) == true }.getOrNull(ordinal)
         }
         if (group != null) builder.setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, 0))
-        Timber.i(
+        Log.i(
             "Exo subtitle %d -> %s (text tracks: %s)",
             streamIndex,
             group?.getTrackFormat(0)?.let { "${it.id} ${it.sampleMimeType}" } ?: "не найдена",
@@ -486,7 +488,7 @@ class ExoEngine(context: Context) : PlaybackEngine, VideoPathSwitchable, DolbyVi
     private fun reportError(error: EngineError) {
         if (errorReported) return
         errorReported = true
-        Timber.w(error.cause, "Exo error: %s", error.message)
+        Log.w(error.cause, "Exo error: %s", error.message)
         _events.tryEmit(EngineEvent.Error(error))
     }
 

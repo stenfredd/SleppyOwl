@@ -1,16 +1,10 @@
 package ru.stenfredd.sleepyowl.playback.exo
 
-import dagger.Binds
-import dagger.Module
-import dagger.hilt.InstallIn
-import dagger.hilt.components.SingletonComponent
-import dagger.multibindings.IntoSet
+import org.koin.android.ext.koin.androidContext
+import org.koin.dsl.bind
+import org.koin.dsl.module
 import ru.stenfredd.sleepyowl.playback.api.EngineProvider
 
-@Module
-@InstallIn(SingletonComponent::class)
-abstract class ExoEngineModule {
-    @Binds
-    @IntoSet
-    abstract fun bindProvider(provider: ExoEngineProvider): EngineProvider
+val exoEngineModule = module {
+    single { ExoEngineProvider(androidContext()) } bind EngineProvider::class
 }

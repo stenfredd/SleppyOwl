@@ -3,18 +3,22 @@
 Builds the app's logo resources from the source picture design/logo/sleepyowl.png (owl over the "SleepyOwl"
 wordmark on a flat navy background, 1254×1254):
 
-  drawable-xhdpi/banner.png               Android TV banner, 320×180 dp: owl + wordmark on the logo's navy
-  drawable-xxxhdpi/ic_launcher_owl.png    adaptive icon foreground (108 dp), background is @color/ic_launcher_background
-  drawable-xhdpi/logo_owl.png             owl alone, transparent — side rail, login, settings
-  drawable-xhdpi/logo_wordmark.png        "SleepyOwl" alone, transparent
+  app/src/main/res/drawable-xhdpi/banner.png             Android TV banner, 320×180 dp: owl + wordmark on navy
+  app/src/main/res/drawable-xxxhdpi/ic_launcher_owl.png  adaptive icon foreground (108 dp), background is
+                                                         @color/ic_launcher_background
+  ui/shared/src/androidMain/res/drawable-xhdpi/logo_owl.png       owl alone, transparent — side rail, login, settings
+  ui/shared/src/androidMain/res/drawable-xhdpi/logo_wordmark.png  "SleepyOwl" alone, transparent
+
+The in-app marks belong to ui:shared: the TV uses them as resources, the desktop reads the same files from its
+classpath.
 
 The navy is keyed out ("color to alpha"): the glow stays as translucent amber, so the owl and the wordmark sit on the
 app's own dark background without a square. The owl's body is made opaque so it does not take the colour of what is
 behind it. The in-app pictures are made at the TV's density (xhdpi, 2 px per dp) and at the size they are drawn
-(see ui/components/Brand.kt), so they are not resampled on the TV.
+(see ui/components/Brand.kt in ui:shared), so they are not resampled on the TV.
 
 Usage:
-  python3 tools/logo/make_assets.py [--src design/logo/sleepyowl.png] [--res app/src/main/res] [--preview DIR]
+  python3 tools/logo/make_assets.py [--src design/logo/sleepyowl.png] [--root REPO] [--preview DIR]
 """
 import argparse
 import os
@@ -27,6 +31,9 @@ BG = np.array([5, 9, 39]) / 255  # the logo's background
 DEAD_ZONE = 7 / 255  # background noise and vignette, keyed out as well
 OWL_ROWS = (0, 870)  # the owl ends at ~858, the wordmark starts at ~882
 WORD_ROWS = (870, 1080)
+# Where the pictures go, relative to the repository: the TV app's own and the shared UI's resources.
+APP_RES = "app/src/main/res/"
+SHARED_RES = "ui/shared/src/androidMain/res/"
 
 DP = 2  # xhdpi
 
@@ -107,7 +114,7 @@ def build(src):
     word_b = fit(word, 32 * DP)
     gap = 6 * DP
     x = (bw - owl_b.width - gap - word_b.width) // 2
-    out["drawable-xhdpi/banner.png"] = on_navy(
+    out[APP_RES + "drawable-xhdpi/banner.png"] = on_navy(
         (bw, bh),
         (owl_b, (x, (bh - owl_b.height) // 2)),
         (word_b, (x + owl_b.width + gap, (bh - word_b.height) // 2 + 2 * DP)),
@@ -119,11 +126,11 @@ def build(src):
     owl_i = fit(owl, round(owl.height * scale))
     fg = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     fg.alpha_composite(owl_i, ((size - owl_i.width) // 2, (size - owl_i.height) // 2))
-    out["drawable-xxxhdpi/ic_launcher_owl.png"] = fg
+    out[APP_RES + "drawable-xxxhdpi/ic_launcher_owl.png"] = fg
 
     # In-app marks, drawn at exactly these sizes (Brand.kt).
-    out["drawable-xhdpi/logo_owl.png"] = fit(owl, 36 * DP)
-    out["drawable-xhdpi/logo_wordmark.png"] = fit(word, 18 * DP)
+    out[SHARED_RES + "drawable-xhdpi/logo_owl.png"] = fit(owl, 36 * DP)
+    out[SHARED_RES + "drawable-xhdpi/logo_wordmark.png"] = fit(word, 18 * DP)
     return out
 
 
@@ -131,12 +138,12 @@ def main():
     root = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".."))
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--src", default=os.path.join(root, "design", "logo", "sleepyowl.png"))
-    p.add_argument("--res", default=os.path.join(root, "app", "src", "main", "res"))
+    p.add_argument("--root", default=root, help="repository root the resource paths are relative to")
     p.add_argument("--preview", help="also write the pictures over the app's background into this directory")
     args = p.parse_args()
 
     for path, img in build(args.src).items():
-        dst = os.path.join(args.res, path)
+        dst = os.path.join(args.root, path)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         img.save(dst, optimize=True)
         print(f"{dst}  {img.width}×{img.height}")

@@ -1,7 +1,6 @@
 package ru.stenfredd.sleepyowl.playback.vlc
 
 import android.content.Context
-import dagger.hilt.android.qualifiers.ApplicationContext
 import org.jellyfin.sdk.model.api.DeviceProfile
 import org.jellyfin.sdk.model.api.DlnaProfileType
 import org.jellyfin.sdk.model.api.EncodingContext
@@ -22,12 +21,9 @@ import ru.stenfredd.sleepyowl.playback.api.Verdict
 import ru.stenfredd.sleepyowl.playback.api.videoStream
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class VlcEngineProvider @Inject constructor(
-    @ApplicationContext private val context: Context,
+class VlcEngineProvider(
+    private val context: Context,
 ) : EngineProvider {
     override val id = ID
     override val displayName = "VLC"

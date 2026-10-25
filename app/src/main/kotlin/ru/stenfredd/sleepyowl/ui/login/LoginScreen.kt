@@ -44,9 +44,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
+import org.koin.compose.viewmodel.koinViewModel
+import ru.stenfredd.sleepyowl.core.common.monotonicMs
 import ru.stenfredd.sleepyowl.ui.components.AppIcon
 import ru.stenfredd.sleepyowl.ui.components.Avatar
 import ru.stenfredd.sleepyowl.ui.components.FocusStyle
@@ -69,7 +70,7 @@ import ru.stenfredd.sleepyowl.ui.theme.AppType
 
 /** Login flow: server → profile → login, see [LoginViewModel]. Sizes are the mockup's px / 2. */
 @Composable
-fun LoginScreen(onDone: () -> Unit, vm: LoginViewModel = hiltViewModel()) {
+fun LoginScreen(onDone: () -> Unit, vm: LoginViewModel = koinViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     LaunchedEffect(state.done) { if (state.done) onDone() }
     // Back walks the steps; on the first one it leaves the screen (closes the app, or returns to it from the menu).
@@ -242,9 +243,10 @@ private fun ServerCard(card: ServerCardModel, onClick: () -> Unit, modifier: Mod
         ) {
             StatusDot(if (card.where == "LAN") AppColors.Blue else AppColors.Pink, pulsing = false)
             BasicText("СЕРВЕР · ${card.where}", Modifier.weight(1f), style = AppType.MonoCaption.copy(letterSpacing = 0.1.em, color = AppColors.TextMuted))
+            val ping = card.ping
             when {
                 card.busy -> BasicText("подключение…", style = AppType.MonoCaption.copy(color = AppColors.Accent))
-                card.ping != null -> BasicText(card.ping, style = AppType.MonoCaption.copy(color = AppColors.Green))
+                ping != null -> BasicText(ping, style = AppType.MonoCaption.copy(color = AppColors.Green))
             }
         }
         Spacer(Modifier.fillMaxWidth().height(0.5.dp).background(Color(0xFF232637)))
@@ -431,7 +433,7 @@ private fun Countdown(expiresAt: Long) {
     var left by rememberSaveable(expiresAt) { mutableStateOf(0L) }
     LaunchedEffect(expiresAt) {
         while (true) {
-            left = ((expiresAt - android.os.SystemClock.elapsedRealtime()) / 1000).coerceAtLeast(0)
+            left = ((expiresAt - monotonicMs()) / 1000).coerceAtLeast(0)
             delay(1000)
         }
     }

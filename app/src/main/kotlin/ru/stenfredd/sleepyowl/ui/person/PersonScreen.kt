@@ -20,8 +20,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import org.koin.compose.viewmodel.koinViewModel
+import org.koin.core.parameter.parametersOf
 import ru.stenfredd.sleepyowl.ui.Screen
 import ru.stenfredd.sleepyowl.ui.components.AnchoredScrolling
 import ru.stenfredd.sleepyowl.ui.components.Avatar
@@ -45,7 +46,7 @@ import ru.stenfredd.sleepyowl.ui.theme.AppType
 fun PersonScreen(
     screen: Screen.Person,
     onOpen: (Screen) -> Unit,
-    vm: PersonViewModel = hiltViewModel<PersonViewModel, PersonViewModel.Factory>(creationCallback = { it.create(screen.personId) }),
+    vm: PersonViewModel = koinViewModel { parametersOf(screen.personId) },
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val focus = rememberScreenFocus()

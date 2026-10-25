@@ -1,8 +1,6 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
-    alias(libs.plugins.ksp)
-    alias(libs.plugins.hilt)
     alias(libs.plugins.androidx.baselineprofile)
 }
 
@@ -49,32 +47,35 @@ android {
 }
 
 dependencies {
+    implementation(project(":core:common"))
     implementation(project(":core:jellyfin"))
     implementation(project(":core:data"))
     implementation(project(":playback:core"))
     implementation(project(":playback:engine-exo"))
     implementation(project(":playback:engine-vlc"))
+    implementation(project(":ui:shared"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
-    implementation(libs.androidx.hilt.lifecycle.viewmodel.compose)
+    implementation(libs.koin.android)
+    implementation(libs.koin.compose.viewmodel)
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.foundation)
     implementation(libs.compose.ui.tooling.preview)
     debugImplementation(libs.compose.ui.tooling)
-    implementation(libs.tv.material)
     implementation(libs.navigation3.runtime)
     implementation(libs.navigation3.ui)
     implementation(libs.androidx.lifecycle.viewmodel.navigation3)
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
-    implementation(libs.hilt.android)
-    ksp(libs.hilt.compiler)
     implementation(libs.timber)
     implementation(libs.zxing.core)
     implementation(libs.androidx.profileinstaller)
     baselineProfile(project(":baselineprofile"))
+
+    testImplementation(libs.junit)
+    testImplementation(libs.koin.test)
 }

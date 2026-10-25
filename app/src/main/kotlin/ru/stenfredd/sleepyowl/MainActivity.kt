@@ -7,29 +7,21 @@ import androidx.activity.compose.setContent
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.tv.material3.Surface
-import androidx.tv.material3.SurfaceDefaults
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
-import dagger.hilt.android.AndroidEntryPoint
-import androidx.compose.runtime.produceState
 import kotlinx.coroutines.channels.Channel
+import org.koin.android.ext.android.inject
 import ru.stenfredd.sleepyowl.core.data.LibraryRepository
 import ru.stenfredd.sleepyowl.core.data.model.LibraryType
 import ru.stenfredd.sleepyowl.core.jellyfin.JellyfinSession
@@ -38,34 +30,29 @@ import ru.stenfredd.sleepyowl.playback.api.StreamSelection
 import ru.stenfredd.sleepyowl.ui.ItemsScreen
 import ru.stenfredd.sleepyowl.ui.Screen
 import ru.stenfredd.sleepyowl.ui.TourScreen
+import ru.stenfredd.sleepyowl.ui.components.AppIcon
 import ru.stenfredd.sleepyowl.ui.details.DetailsScreen
-import ru.stenfredd.sleepyowl.ui.home.HomeScreen
 import ru.stenfredd.sleepyowl.ui.favorites.FavoritesScreen
+import ru.stenfredd.sleepyowl.ui.home.HomeScreen
 import ru.stenfredd.sleepyowl.ui.library.LibraryMemory
 import ru.stenfredd.sleepyowl.ui.library.LibraryScreen
-import ru.stenfredd.sleepyowl.ui.person.PersonScreen
-import ru.stenfredd.sleepyowl.ui.search.SearchScreen
-import ru.stenfredd.sleepyowl.ui.settings.LicenseScreen
-import ru.stenfredd.sleepyowl.ui.settings.SettingsScreen
-import ru.stenfredd.sleepyowl.ui.player.PlayerScreen
-import ru.stenfredd.sleepyowl.ui.series.SeriesScreen
 import ru.stenfredd.sleepyowl.ui.login.LoginScreen
 import ru.stenfredd.sleepyowl.ui.menu.WatchMenuHost
-import ru.stenfredd.sleepyowl.ui.components.AppIcon
+import ru.stenfredd.sleepyowl.ui.person.PersonScreen
+import ru.stenfredd.sleepyowl.ui.player.PlayerScreen
+import ru.stenfredd.sleepyowl.ui.search.SearchScreen
+import ru.stenfredd.sleepyowl.ui.series.SeriesScreen
+import ru.stenfredd.sleepyowl.ui.settings.LicenseScreen
+import ru.stenfredd.sleepyowl.ui.settings.SettingsScreen
 import ru.stenfredd.sleepyowl.ui.shell.RailLibrary
 import ru.stenfredd.sleepyowl.ui.shell.Shell
 import ru.stenfredd.sleepyowl.ui.shell.Tab
-import ru.stenfredd.sleepyowl.ui.theme.AppColors
-import ru.stenfredd.sleepyowl.ui.theme.AppTheme
-import ru.stenfredd.sleepyowl.ui.theme.AppType
 import java.util.UUID
-import javax.inject.Inject
 
-@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
-    @Inject lateinit var session: JellyfinSession
-    @Inject lateinit var libraryRepository: LibraryRepository
-    @Inject lateinit var libraryMemory: LibraryMemory
+    private val session: JellyfinSession by inject()
+    private val libraryRepository: LibraryRepository by inject()
+    private val libraryMemory: LibraryMemory by inject()
 
     /** Account → its libraries on the rail, see [Root]. */
     private var railLibraries: Pair<String, List<RailLibrary>> = "" to emptyList()
@@ -76,30 +63,28 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            AppTheme {
-                val stack = remember { mutableStateListOf<Screen>() }
-                var ready by remember { mutableStateOf(false) }
+            val stack = remember { mutableStateListOf<Screen>() }
+            var ready by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) {
+                val loggedIn = session.restore()
+                // One that came during the restore is already [getIntent], read just below.
+                launches.tryReceive()
+                stack += if (loggedIn) root(Tab.Home) else Screen.Login
+                if (loggedIn) intentTarget(intent)?.let(stack::addAll)
+                ready = true
+            }
+            if (ready) {
+                // Long press on a card (or ✓ on the series page): mark watched / unwatched, over any screen.
+                WatchMenuHost { Navigation(stack) }
                 LaunchedEffect(Unit) {
-                    val loggedIn = session.restore()
-                    // One that came during the restore is already [getIntent], read just below.
-                    launches.tryReceive()
-                    stack += if (loggedIn) root(Tab.Home) else Screen.Login
-                    if (loggedIn) intentTarget(intent)?.let(stack::addAll)
-                    ready = true
-                }
-                if (ready) {
-                    // Long press on a card (or ✓ on the series page): mark watched / unwatched, over any screen.
-                    WatchMenuHost { Navigation(stack) }
-                    LaunchedEffect(Unit) {
-                        for (launch in launches) {
-                            // Signed out: the login screen stays, as at a cold start. No target (the app's icon): stay where the app was.
-                            if (session.session.value == null) continue
-                            val target = intentTarget(launch) ?: continue
-                            // As at a cold start, so Back leads to the app's home. An open player is released and saves its position.
-                            stack.clear()
-                            stack += root(Tab.Home)
-                            stack += target
-                        }
+                    for (launch in launches) {
+                        // Signed out: the login screen stays, as at a cold start. No target (the app's icon): stay where the app was.
+                        if (session.session.value == null) continue
+                        val target = intentTarget(launch) ?: continue
+                        // As at a cold start, so Back leads to the app's home. An open player is released and saves its position.
+                        stack.clear()
+                        stack += root(Tab.Home)
+                        stack += target
                     }
                 }
             }
@@ -166,7 +151,7 @@ class MainActivity : ComponentActivity() {
                             onSignedOut = { resetTo(Screen.Login) },
                             onSwitched = { resetTo(root(Tab.Home)) },
                         )
-                        is Screen.Items -> Legacy { ItemsScreen(screen, onOpen = ::open) }
+                        is Screen.Items -> ItemsScreen(screen, onOpen = ::open)
                         is Screen.Detail -> DetailsScreen(screen, onOpen = ::open)
                         is Screen.Series -> SeriesScreen(screen, onOpen = ::open)
                         is Screen.Person -> PersonScreen(screen, onOpen = ::open)
@@ -220,12 +205,6 @@ class MainActivity : ComponentActivity() {
                 Tab.Settings -> SettingsScreen(onOpen = onOpen, onSignedOut = onSignedOut, onSwitched = onSwitched)
             }
         }
-    }
-
-    /** Old prototype screens use tv-material components, which take their text colour from a Surface. */
-    @Composable
-    private fun Legacy(content: @Composable () -> Unit) {
-        Surface(Modifier.fillMaxSize(), colors = SurfaceDefaults.colors(containerColor = Color.Transparent, contentColor = AppColors.Text)) { content() }
     }
 
     /**

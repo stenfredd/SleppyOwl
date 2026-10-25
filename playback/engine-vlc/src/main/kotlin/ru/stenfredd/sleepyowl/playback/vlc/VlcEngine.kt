@@ -21,6 +21,8 @@ import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
 import org.videolan.libvlc.interfaces.IMedia
 import org.videolan.libvlc.util.VLCVideoLayout
+import ru.stenfredd.sleepyowl.core.common.Log
+import ru.stenfredd.sleepyowl.playback.api.AndroidVideoOutput
 import ru.stenfredd.sleepyowl.playback.api.AudioDelayCapable
 import ru.stenfredd.sleepyowl.playback.api.Codecs
 import ru.stenfredd.sleepyowl.playback.api.DeviceCapabilities
@@ -34,10 +36,11 @@ import ru.stenfredd.sleepyowl.playback.api.SubtitleDelayCapable
 import ru.stenfredd.sleepyowl.playback.api.SubtitleStyle
 import ru.stenfredd.sleepyowl.playback.api.SubtitleStyleable
 import ru.stenfredd.sleepyowl.playback.api.embeddedOrdinal
+import ru.stenfredd.sleepyowl.playback.api.encodingName
+import ru.stenfredd.sleepyowl.playback.api.passthroughEncoding
 import ru.stenfredd.sleepyowl.playback.api.stream
 import ru.stenfredd.sleepyowl.playback.api.streams
 import ru.stenfredd.sleepyowl.playback.api.videoStream
-import timber.log.Timber
 
 /**
  * libVLC engine. Owns its LibVLC instance so every playback starts clean and releases all native
@@ -45,7 +48,7 @@ import timber.log.Timber
  * All network access goes through [LoopbackProxy]: libVLC itself only sees plain HTTP on 127.0.0.1.
  */
 class VlcEngine(context: Context, httpClient: OkHttpClient, private val device: DeviceCapabilities) :
-    PlaybackEngine, AudioDelayCapable, SubtitleDelayCapable, SubtitleStyleable {
+    PlaybackEngine, AndroidVideoOutput, AudioDelayCapable, SubtitleDelayCapable, SubtitleStyleable {
     override val id = VlcEngineProvider.ID
 
     private val appContext = context.applicationContext
@@ -91,13 +94,13 @@ class VlcEngine(context: Context, httpClient: OkHttpClient, private val device: 
     private val dialogCallbacks = object : Dialog.Callbacks {
         override fun onDisplay(dialog: Dialog.ErrorMessage) {
             lastDialogError = "${dialog.title}: ${dialog.text}"
-            Timber.w("VLC error dialog: %s", lastDialogError)
+            Log.w("VLC error dialog: %s", lastDialogError)
             _stats.update { it.copy(extra = it.extra + ("vlc" to lastDialogError.orEmpty())) }
         }
         override fun onDisplay(dialog: Dialog.LoginDialog) = dialog.dismiss()
         override fun onDisplay(dialog: Dialog.QuestionDialog) {
             // E.g. an untrusted TLS certificate. Never accept silently.
-            Timber.w("VLC question dialog dismissed: %s / %s", dialog.title, dialog.text)
+            Log.w("VLC question dialog dismissed: %s / %s", dialog.title, dialog.text)
             lastDialogError = "${dialog.title}: ${dialog.text}"
             dialog.dismiss()
         }
@@ -195,14 +198,14 @@ class VlcEngine(context: Context, httpClient: OkHttpClient, private val device: 
         val landed = time - elapsed.coerceAtMost(time)
         val error = seekTargetMs - landed
         if (error in -SEEK_TOLERANCE_MS..SEEK_TOLERANCE_MS || seekAttempts >= MAX_SEEK_CORRECTIONS) {
-            if (seekAttempts > 0) Timber.i("VLC seek to %d s: landed at %d s after %d corrections", seekTargetMs / 1000, landed / 1000, seekAttempts)
+            if (seekAttempts > 0) Log.i("VLC seek to %d s: landed at %d s after %d corrections", seekTargetMs / 1000, landed / 1000, seekAttempts)
             seekTargetMs = -1
             return
         }
         seekAttempts++
         seekRequestMs = (seekRequestMs + error).coerceAtLeast(0)
         seekIssuedAt = SystemClock.elapsedRealtime()
-        Timber.i("VLC seek to %d s landed at %d s, retrying with %d s", seekTargetMs / 1000, landed / 1000, seekRequestMs / 1000)
+        Log.i("VLC seek to %d s landed at %d s, retrying with %d s", seekTargetMs / 1000, landed / 1000, seekRequestMs / 1000)
         player.setTime(seekRequestMs, false)
     }
 
@@ -234,7 +237,7 @@ class VlcEngine(context: Context, httpClient: OkHttpClient, private val device: 
             player.setAudioOutputDevice(mode)
         }
         val label = if (passthrough) "passthrough ${Codecs.encodingName(encoding!!)}" else "PCM стерео (${codec ?: "?"})"
-        Timber.i("VLC audio output: %s", label)
+        Log.i("VLC audio output: %s", label)
         _stats.update { it.copy(audioOutput = label) }
     }
 
@@ -275,11 +278,11 @@ class VlcEngine(context: Context, httpClient: OkHttpClient, private val device: 
             req.mediaSource.embeddedOrdinal(streamIndex, MediaStreamType.SUBTITLE)?.let(tracks::getOrNull)
         }
         if (track == null) {
-            Timber.d("VLC subtitle %d not there yet (spu tracks: %s)", streamIndex, tracks.joinToString { "${it.id} ${it.name}" })
+            Log.d("VLC subtitle %d not there yet (spu tracks: %s)", streamIndex, tracks.joinToString { "${it.id} ${it.name}" })
             pendingSubtitle = streamIndex
             return
         }
-        Timber.i("VLC subtitle %d -> track %d «%s»", streamIndex, track.id, track.name)
+        Log.i("VLC subtitle %d -> track %d «%s»", streamIndex, track.id, track.name)
         player.setSpuTrack(track.id)
     }
 
@@ -320,7 +323,7 @@ class VlcEngine(context: Context, httpClient: OkHttpClient, private val device: 
             m?.release()
             player.release()
             libVlc.release()
-            Timber.i("libVLC released in %d ms", SystemClock.elapsedRealtime() - started)
+            Log.i("libVLC released in %d ms", SystemClock.elapsedRealtime() - started)
         }, "vlc-release").start()
     }
 
@@ -400,7 +403,7 @@ class VlcEngine(context: Context, httpClient: OkHttpClient, private val device: 
     private fun reportError(error: EngineError) {
         if (errorReported) return
         errorReported = true
-        Timber.w("VLC error: %s", error.message)
+        Log.w("VLC error: %s", error.message)
         _events.tryEmit(EngineEvent.Error(error))
     }
 

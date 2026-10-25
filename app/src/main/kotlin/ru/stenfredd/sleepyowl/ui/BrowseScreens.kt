@@ -1,53 +1,38 @@
 package ru.stenfredd.sleepyowl.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import androidx.lifecycle.ViewModel
-import androidx.tv.material3.Button
-import androidx.tv.material3.Card
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Text
-import coil3.compose.AsyncImage
-import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.launch
+import androidx.compose.ui.unit.sp
 import org.jellyfin.sdk.model.api.BaseItemDto
 import org.jellyfin.sdk.model.api.BaseItemKind
-import ru.stenfredd.sleepyowl.core.jellyfin.JellyfinSession
-import ru.stenfredd.sleepyowl.ui.components.TextInput
-import ru.stenfredd.sleepyowl.ui.components.rememberTextInputState
+import org.koin.compose.viewmodel.koinViewModel
+import ru.stenfredd.sleepyowl.ui.components.FocusStyle
+import ru.stenfredd.sleepyowl.ui.components.RemoteImage
+import ru.stenfredd.sleepyowl.ui.components.RemoteImageSpec
+import ru.stenfredd.sleepyowl.ui.components.focusCard
 import ru.stenfredd.sleepyowl.ui.theme.AppColors
 import ru.stenfredd.sleepyowl.ui.theme.AppType
-import javax.inject.Inject
-
-@HiltViewModel
-class BrowseViewModel @Inject constructor(val library: Library, val session: JellyfinSession) : ViewModel()
 
 private fun BaseItemDto.target(): Screen = when {
     type == BaseItemKind.SERIES -> Screen.Series(id)
@@ -56,21 +41,22 @@ private fun BaseItemDto.target(): Screen = when {
 }
 
 @Composable
-fun ItemsScreen(screen: Screen.Items, onOpen: (Screen) -> Unit, vm: BrowseViewModel = hiltViewModel()) {
+fun ItemsScreen(screen: Screen.Items, onOpen: (Screen) -> Unit, vm: BrowseViewModel = koinViewModel()) {
     var items by remember { mutableStateOf<List<BaseItemDto>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(screen.parentId) {
         runCatching { items = vm.library.children(screen.parentId) }.onFailure { error = it.message }
     }
     Column(Modifier.fillMaxSize().padding(48.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text(screen.title, style = MaterialTheme.typography.headlineMedium)
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        BasicText(screen.title, style = AppType.Display.copy(fontSize = 26.sp))
+        error?.let { BasicText(it, style = AppType.Body.copy(color = AppColors.Red)) }
         when (val list = items) {
-            null -> Text("Загрузка…")
+            null -> BasicText("Загрузка…", style = AppType.Body)
             else -> LazyVerticalGrid(
                 columns = GridCells.Adaptive(160.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
+                contentPadding = PaddingValues(12.dp),
             ) {
                 items(list, key = { it.id }) { item -> Poster(item, vm.library, Modifier.fillMaxWidth()) { onOpen(item.target()) } }
             }
@@ -80,17 +66,18 @@ fun ItemsScreen(screen: Screen.Items, onOpen: (Screen) -> Unit, vm: BrowseViewMo
 
 @Composable
 private fun Poster(item: BaseItemDto, library: Library, modifier: Modifier, onClick: () -> Unit) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Card(onClick = onClick, modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f)) {
-            Box(Modifier.fillMaxSize()) {
-                val url = remember(item.id) { library.posterUrl(item) }
-                if (url != null) {
-                    AsyncImage(model = url, contentDescription = item.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                } else {
-                    Text(item.name.orEmpty(), modifier = Modifier.padding(8.dp))
-                }
-            }
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(
+            Modifier
+                .focusCard(FocusStyle.Poster)
+                .fillMaxWidth()
+                .aspectRatio(2f / 3f)
+                .clickable(interactionSource = null, indication = null, onClick = onClick),
+        ) {
+            val url = remember(item.id) { library.posterUrl(item) }
+            RemoteImage(url?.let { RemoteImageSpec(it) }, 7.dp, Modifier.fillMaxSize())
+            if (url == null) BasicText(item.name.orEmpty(), Modifier.padding(8.dp), style = AppType.PosterTitle)
         }
-        Text(item.label, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
+        BasicText(item.label, maxLines = 2, overflow = TextOverflow.Ellipsis, style = AppType.MonoCaption)
     }
 }

@@ -44,11 +44,11 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
+import org.koin.compose.viewmodel.koinViewModel
 import ru.stenfredd.sleepyowl.BuildConfig
 import ru.stenfredd.sleepyowl.core.data.model.MediaInfo
 import ru.stenfredd.sleepyowl.core.data.model.MediaSegment
@@ -57,6 +57,7 @@ import ru.stenfredd.sleepyowl.core.data.toMediaInfo
 import ru.stenfredd.sleepyowl.playback.api.DolbyVisionSwitchable
 import ru.stenfredd.sleepyowl.playback.api.EngineId
 import ru.stenfredd.sleepyowl.playback.api.EngineState
+import ru.stenfredd.sleepyowl.playback.api.FrameLayoutVideoHost
 import ru.stenfredd.sleepyowl.playback.api.SubtitleStyle
 import ru.stenfredd.sleepyowl.playback.api.VideoPathSwitchable
 import ru.stenfredd.sleepyowl.playback.core.PlaybackSession
@@ -88,7 +89,7 @@ fun PlayerScreen(
     onOpenDetails: (UUID) -> Unit = {},
     onOpenSeries: (seriesId: UUID, episodeId: UUID) -> Unit = { _, _ -> },
     tour: TourInfo? = null,
-    vm: PlayerViewModel = hiltViewModel(),
+    vm: PlayerViewModel = koinViewModel(),
 ) {
     LaunchedEffect(screen) { vm.start(screen) }
     DisposableEffect(vm) { onDispose { vm.release() } }
@@ -106,7 +107,7 @@ private fun VideoSurface(session: PlaybackSession?) {
     AndroidView(factory = { ctx -> FrameLayout(ctx).also { container = it } }, modifier = Modifier.fillMaxSize())
     DisposableEffect(session, container) {
         val c = container
-        if (session != null && c != null) session.attachVideo(c)
+        if (session != null && c != null) session.attachVideo(FrameLayoutVideoHost(c))
         onDispose { session?.detachVideo() }
     }
 }

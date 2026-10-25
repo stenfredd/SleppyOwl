@@ -4,7 +4,6 @@ import android.content.Context
 import android.media.MediaCodecInfo.CodecProfileLevel
 import android.view.Display.HdrCapabilities
 import androidx.media3.decoder.ffmpeg.FfmpegLibrary
-import dagger.hilt.android.qualifiers.ApplicationContext
 import org.jellyfin.sdk.model.api.CodecType
 import org.jellyfin.sdk.model.api.DeviceProfile
 import org.jellyfin.sdk.model.api.DlnaProfileType
@@ -23,12 +22,12 @@ import ru.stenfredd.sleepyowl.playback.api.Loss
 import ru.stenfredd.sleepyowl.playback.api.PlaybackEngine
 import ru.stenfredd.sleepyowl.playback.api.StreamSelection
 import ru.stenfredd.sleepyowl.playback.api.Verdict
+import ru.stenfredd.sleepyowl.playback.api.passthroughEncoding
 import ru.stenfredd.sleepyowl.playback.api.stream
 import ru.stenfredd.sleepyowl.playback.api.videoStream
-import javax.inject.Inject
 
-class ExoEngineProvider @Inject constructor(
-    @ApplicationContext private val context: Context,
+class ExoEngineProvider(
+    private val context: Context,
 ) : EngineProvider {
     override val id = ID
     override val displayName = "ExoPlayer"

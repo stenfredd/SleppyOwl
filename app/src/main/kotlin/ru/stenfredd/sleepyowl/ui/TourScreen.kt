@@ -1,7 +1,6 @@
 package ru.stenfredd.sleepyowl.ui
 
 import android.content.Context
-import android.view.KeyEvent as AndroidKeyEvent
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
@@ -30,14 +29,14 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.tv.material3.Text
-import java.util.UUID
 import kotlinx.coroutines.delay
 import org.json.JSONArray
+import ru.stenfredd.sleepyowl.core.common.Log
 import ru.stenfredd.sleepyowl.playback.api.StreamSelection
 import ru.stenfredd.sleepyowl.ui.player.PlayerScreen
 import ru.stenfredd.sleepyowl.ui.player.TourInfo
-import timber.log.Timber
+import java.util.UUID
+import android.view.KeyEvent as AndroidKeyEvent
 
 /**
  * One file of the debug tour with the tracks to select. The list is `assets/tour.json` of the debug build,
@@ -61,7 +60,7 @@ class TourEntry(val id: UUID, val title: String, val audio: Int?, val subtitle: 
                     label = o.optString("label"),
                 )
             }
-        }.onFailure { Timber.w(it, "Tour list not loaded") }.getOrDefault(emptyList())
+        }.onFailure { Log.w(it, "Tour list not loaded") }.getOrDefault(emptyList())
     }
 }
 
@@ -79,7 +78,7 @@ fun TourScreen(startIndex: Int, onExit: () -> Unit) {
     var index by rememberSaveable { mutableIntStateOf(startIndex.coerceIn(0, (entries.size - 1).coerceAtLeast(0))) }
     var playing by rememberSaveable { mutableIntStateOf(index) }
     if (entries.isEmpty()) {
-        Box(Modifier.fillMaxSize()) { Text("Список файлов для отладки пуст (assets/tour.json)", Modifier.align(Alignment.Center)) }
+        Box(Modifier.fillMaxSize()) { DebugText("Список файлов для отладки пуст (assets/tour.json)", Modifier.align(Alignment.Center)) }
         return
     }
     LaunchedEffect(index) {
@@ -132,10 +131,10 @@ private fun TourPending(number: Int, total: Int, entry: TourEntry, onMove: (Int)
             .focusable(),
     ) {
         Column(Modifier.align(Alignment.Center).padding(48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Отладка: файл $number из $total", fontSize = 20.sp, color = Color(0xFF80CBC4))
-            Text(entry.title, fontSize = 28.sp, color = Color.White)
-            Text(entry.label, fontSize = 16.sp, color = Color.LightGray)
-            Text("Запуск через 2 с · ↓ дальше · ↑ назад", fontSize = 14.sp, color = Color.Gray, modifier = Modifier.padding(top = 24.dp))
+            DebugText("Отладка: файл $number из $total", fontSize = 20.sp, color = Color(0xFF80CBC4))
+            DebugText(entry.title, fontSize = 28.sp, color = Color.White)
+            DebugText(entry.label, fontSize = 16.sp, color = Color.LightGray)
+            DebugText("Запуск через 2 с · ↓ дальше · ↑ назад", Modifier.padding(top = 24.dp), fontSize = 14.sp, color = Color.Gray)
         }
     }
 }

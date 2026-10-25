@@ -1,7 +1,5 @@
 plugins {
     alias(libs.plugins.android.library)
-    alias(libs.plugins.ksp)
-    alias(libs.plugins.hilt)
 }
 
 android {
@@ -16,12 +14,11 @@ android {
 
 dependencies {
     implementation(project(":playback:api"))
+    implementation(project(":core:common"))
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.exoplayer.hls)
     implementation(libs.media3.ui)
     implementation(libs.ass.media)
     implementation(libs.jellyfin.ffmpeg)
-    implementation(libs.hilt.android)
-    ksp(libs.hilt.compiler)
-    implementation(libs.timber)
+    implementation(libs.koin.android)
 }

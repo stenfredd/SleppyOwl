@@ -1,27 +1,25 @@
 plugins {
-    alias(libs.plugins.android.library)
-    alias(libs.plugins.ksp)
-    alias(libs.plugins.hilt)
+    alias(libs.plugins.kotlin.multiplatform)
+    alias(libs.plugins.android.kotlin.multiplatform.library)
 }
 
-android {
-    namespace = "ru.stenfredd.sleepyowl.core.jellyfin"
-    compileSdk = 37
-    defaultConfig { minSdk = 26 }
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+kotlin {
+    android {
+        namespace = "ru.stenfredd.sleepyowl.core.jellyfin"
+        compileSdk = 37
+        minSdk = 26
     }
-}
+    jvm("desktop")
 
-dependencies {
-    api(libs.jellyfin.sdk)
-    api(libs.kotlinx.coroutines.android)
-    api(libs.okhttp)
-    implementation(libs.androidx.datastore.preferences)
-    implementation(libs.hilt.android)
-    ksp(libs.hilt.compiler)
-    implementation(libs.timber)
-    // The SDK logs through slf4j but does not ship it.
-    runtimeOnly(libs.slf4j.api)
+    sourceSets {
+        commonMain.dependencies {
+            api(project(":core:common"))
+            api(libs.jellyfin.sdk)
+            api(libs.okhttp)
+            api(libs.koin.core)
+            implementation(libs.kotlinx.serialization.json)
+            // The SDK logs through slf4j but does not ship it.
+            runtimeOnly(libs.slf4j.api)
+        }
+    }
 }

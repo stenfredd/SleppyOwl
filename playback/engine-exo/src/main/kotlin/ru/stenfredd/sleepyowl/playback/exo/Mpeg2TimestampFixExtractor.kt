@@ -12,7 +12,7 @@ import androidx.media3.extractor.ExtractorOutput
 import androidx.media3.extractor.PositionHolder
 import androidx.media3.extractor.SeekMap
 import androidx.media3.extractor.TrackOutput
-import timber.log.Timber
+import ru.stenfredd.sleepyowl.core.common.Log
 import java.io.EOFException
 import kotlin.math.abs
 
@@ -126,7 +126,7 @@ internal class Mpeg2TimestampFixExtractor(private val delegate: Extractor) : Ext
                     val expectedUs = anchorTimeUs + (reference - anchorReference) * frameDurationUs
                     if (extrapolated || abs(timeUs - expectedUs) > MAX_PTS_DEVIATION_US) fixedTimeUs = expectedUs
                     if (fixedTimeUs != timeUs && fixedCount++ == 0L) {
-                        Timber.i("MPEG-2: rebuilding broken timestamps from temporal_reference")
+                        Log.i("MPEG-2: rebuilding broken timestamps from temporal_reference")
                     }
                 }
             }

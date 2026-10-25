@@ -47,11 +47,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.transformations
+import org.koin.compose.viewmodel.koinViewModel
+import org.koin.core.parameter.parametersOf
 import ru.stenfredd.sleepyowl.ui.Screen
 import ru.stenfredd.sleepyowl.ui.components.AnchoredScrolling
 import ru.stenfredd.sleepyowl.ui.components.AppIcon
@@ -84,7 +85,7 @@ import ru.stenfredd.sleepyowl.ui.details.DetailsLayout as L
 fun DetailsScreen(
     screen: Screen.Detail,
     onOpen: (Screen) -> Unit,
-    vm: DetailsViewModel = hiltViewModel<DetailsViewModel, DetailsViewModel.Factory>(creationCallback = { it.create(screen.itemId) }),
+    vm: DetailsViewModel = koinViewModel { parametersOf(screen.itemId) },
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val focus = rememberScreenFocus()

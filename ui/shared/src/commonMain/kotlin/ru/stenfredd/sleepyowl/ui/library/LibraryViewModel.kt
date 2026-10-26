@@ -128,6 +128,12 @@ class LibraryViewModel(
         }
     }
 
+    /** A tile clicked (the desktop): that library now. */
+    fun selectLibrary(id: UUID) {
+        selectJob?.cancel()
+        if (id != _state.value.selected) select(id)
+    }
+
     fun setSort(sort: ItemSort) {
         val content = _state.value.content ?: return
         if (content.sort != sort) restartGrid(content.libraryId, sort, content.unwatched)

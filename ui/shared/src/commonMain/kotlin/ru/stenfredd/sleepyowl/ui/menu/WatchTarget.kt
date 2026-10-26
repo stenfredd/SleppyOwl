@@ -68,8 +68,9 @@ class WatchMenu {
 val LocalWatchMenu = staticCompositionLocalOf<WatchMenu?> { null }
 
 /**
- * Click of a card or chip that also opens the watched menu for [target]: OK held down (a long press), or the remote's
- * Menu key where it has one. Without a target it's a plain click. Put it where `clickable` would go.
+ * Click of a card or chip that also opens the watched menu for [target]: OK held down (a long press), the remote's
+ * Menu key where it has one, or the right mouse button on the desktop. Without a target it's a plain click. Put it
+ * where `clickable` would go.
  */
 @Composable
 fun Modifier.clickableWithMenu(target: WatchTarget?, onClick: () -> Unit): Modifier {
@@ -79,11 +80,15 @@ fun Modifier.clickableWithMenu(target: WatchTarget?, onClick: () -> Unit): Modif
     val open = remember(menu, target) { { menu.open(target, self) } }
     return this
         .focusRequester(self)
+        .secondaryClick(open)
         .onKeyEvent { e ->
             (e.key == Key.Menu).also { if (it && e.type == KeyEventType.KeyUp) open() }
         }
         .combinedClickable(interactionSource = null, indication = null, onLongClick = open, onClick = onClick)
 }
+
+/** The right mouse button runs [onClick]; nothing on the TV. */
+internal expect fun Modifier.secondaryClick(onClick: () -> Unit): Modifier
 
 class WatchMenuViewModel(private val watch: WatchRepository) : ViewModel() {
     /** Screens reload on their own when it's done (the cache tells them the user data changed). */

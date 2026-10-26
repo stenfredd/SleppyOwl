@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=SleepyOwl
+GenericName=Jellyfin client
+GenericName[ru]=Клиент Jellyfin
+Comment=Movies and series from your Jellyfin server
+Comment[ru]=Фильмы и сериалы с вашего сервера Jellyfin
+Exec=sleepyowl
+Icon=sleepyowl
+Terminal=false
+Categories=AudioVideo;Video;Player;
+Keywords=jellyfin;movies;series;video;кино;сериалы;
+StartupWMClass=sleepyowl
+StartupNotify=true

@@ -8,6 +8,8 @@ wordmark on a flat navy background, 1254×1254):
                                                          @color/ic_launcher_background
   ui/shared/src/androidMain/res/drawable-xhdpi/logo_owl.png       owl alone, transparent — side rail, login, settings
   ui/shared/src/androidMain/res/drawable-xhdpi/logo_wordmark.png  "SleepyOwl" alone, transparent
+  desktop/src/main/resources/icons/sleepyowl-<N>.png     desktop icon N×N (16…512): owl on a navy rounded square —
+                                                         window icon, .desktop file, the .deb's hicolor theme
 
 The in-app marks belong to ui:shared: the TV uses them as resources, the desktop reads the same files from its
 classpath.
@@ -24,7 +26,7 @@ import argparse
 import os
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 from scipy import ndimage
 
 BG = np.array([5, 9, 39]) / 255  # the logo's background
@@ -34,6 +36,8 @@ WORD_ROWS = (870, 1080)
 # Where the pictures go, relative to the repository: the TV app's own and the shared UI's resources.
 APP_RES = "app/src/main/res/"
 SHARED_RES = "ui/shared/src/androidMain/res/"
+DESKTOP_ICONS = "desktop/src/main/resources/icons/"
+DESKTOP_SIZES = (16, 24, 32, 48, 64, 128, 256, 512)
 
 DP = 2  # xhdpi
 
@@ -127,6 +131,17 @@ def build(src):
     fg = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     fg.alpha_composite(owl_i, ((size - owl_i.width) // 2, (size - owl_i.height) // 2))
     out[APP_RES + "drawable-xxxhdpi/ic_launcher_owl.png"] = fg
+
+    # Desktop icons: the owl's body fills ~80 % of a navy square with rounded corners (as the panel's other icons).
+    big = 1024
+    plate = Image.new("L", (big, big), 0)
+    ImageDraw.Draw(plate).rounded_rectangle((0, 0, big - 1, big - 1), radius=big * 0.22, fill=255)
+    owl_d = fit(owl, round(owl.height * big * 0.4 / body_radius))
+    icon = Image.new("RGBA", (big, big), tuple(int(c * 255 + 0.5) for c in BG) + (255,))
+    icon.alpha_composite(owl_d, ((big - owl_d.width) // 2, (big - owl_d.height) // 2))
+    icon.putalpha(plate)
+    for n in DESKTOP_SIZES:
+        out[DESKTOP_ICONS + f"sleepyowl-{n}.png"] = icon.convert("RGBa").resize((n, n), Image.LANCZOS).convert("RGBA")
 
     # In-app marks, drawn at exactly these sizes (Brand.kt).
     out[SHARED_RES + "drawable-xhdpi/logo_owl.png"] = fit(owl, 36 * DP)

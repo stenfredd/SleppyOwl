@@ -97,7 +97,8 @@ class SearchViewModel(
 
     fun toggleLayout() = _state.update { it.copy(latin = !it.latin) }
 
-    private fun setQuery(query: String) {
+    /** The whole query at once: the desktop's text field. */
+    fun setQuery(query: String) {
         val q = query.take(MAX_LENGTH)
         if (q == _state.value.query) return
         searchJob?.cancel()

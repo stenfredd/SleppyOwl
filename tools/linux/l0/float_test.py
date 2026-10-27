@@ -8,6 +8,9 @@ float_test.py <037|041>
 import json, os, socket, subprocess, sys, time
 from Xlib import X, display
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+import devenv
+
 # mpv 0.37 из репозитория Mint (или распакованный из .deb без установки: apt download mpv; dpkg -x)
 M037 = os.environ.get("MPV037", "mpv")
 RUN = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/run/user/1000"), "l0")
@@ -15,8 +18,8 @@ os.makedirs(RUN, exist_ok=True)
 ver = sys.argv[1]
 sock = os.path.join(RUN, f"float{ver}.sock")
 if os.path.exists(sock): os.unlink(sock)
-item = "00000000000000000000000000000000"
-url = f"http://192.168.1.10:8096/Videos/{item}/stream?static=true&mediaSourceId={item}"
+item = devenv.need("L0_FLOAT_ITEM")
+url = f"{devenv.need('JF_URL')}/Videos/{item}/stream?static=true&mediaSourceId={item}"
 opts = ["--config=no", "--mute=yes", "--start=30%", "--hwdec=auto-safe", "--vo=gpu", "--gpu-api=opengl",
         "--ontop", "--no-border", "--geometry=640x360-24-24", "--screen=0", "--keep-open=yes",
         "--title=L0 float", f"--input-ipc-server={sock}"]

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Test stand of the desktop app (LINUX_PLAN.md §3 «Как проверяем»): a private virtual display :87 with the real
+# Test stand of the desktop app (docs/desktop.md): a private virtual display :87 with the real
 # window manager (Muffin), so window, mouse and keyboard tests do not touch the user's screen. Muffin and the app share
 # the stand's own D-Bus session bus: the app's MPRIS player and screensaver calls never reach the user's desktop.
 # mpv plays into no sound device (ao=null, unless SLEEPYOWL_MPV_OPTIONS says otherwise): the stand never touches the
@@ -14,7 +14,7 @@
 #   stand.sh log                the app's log (sleepyowl.log)
 #   stand.sh bus CMD…           run CMD on the stand's D-Bus (busctl --user, gdbus, dbus-monitor…)
 #
-# The app's files live in $STAND (default ~/.cache/sleepyowl-test): its own config with the test account,
+# The app's files live in $STAND (default ~/.cache/sleepyowl-test): its own config with the test account (JF_USER),
 # cache, log and lock — the user's own ~/.config/sleepyowl is never used. Gradle builds before `app` unless
 # DESKTOP_NOBUILD=1. SLEEPYOWL_APP=<launcher> runs that instead of the Gradle build, e.g. the packaged app unpacked by
 # `dpkg-deb -x sleepyowl_*.deb DIR` → SLEEPYOWL_APP=DIR/opt/sleepyowl/bin/sleepyowl (also for k2.py).
@@ -22,7 +22,7 @@ set -e
 R=$(cd "$(dirname "$0")/../.." && pwd)
 STAND=${STAND:-$HOME/.cache/sleepyowl-test}
 D=:87
-export JAVA_HOME=${JAVA_HOME:-$HOME/.jdks/jdk-21.0.12.1+1}
+source "$R/tools/devenv.sh"
 mkdir -p "$STAND/shots" "$STAND/run"
 
 running() { [ -f "$STAND/run/$1.pid" ] && kill -0 "$(cat "$STAND/run/$1.pid")" 2>/dev/null; }

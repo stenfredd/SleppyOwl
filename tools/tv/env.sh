@@ -1,9 +1,10 @@
 #!/bin/bash
 # Helpers for driving the test TV over adb. Usage: source tools/tv/env.sh
-# TV_ADB: адрес из «Беспроводной отладки» (порт меняется после перезагрузки ТВ).
-export JAVA_HOME=${JAVA_HOME:-$HOME/.jdks/jdk-21.0.12.1+1}
-TV_ADB=${TV_ADB:-192.168.1.20:5555}
-A="$HOME/Android/Sdk/platform-tools/adb -s $TV_ADB"
+# TV_ADB (адрес ТВ), JF_URL (сервер), ADB, JAVA_HOME, PROFILE_SERIES — из local/dev.env (шаблон tools/dev.env.example).
+source "$(dirname "${BASH_SOURCE[0]}")/../devenv.sh"
+: "${TV_ADB:?set TV_ADB in local/dev.env}"
+ADB=${ADB:-$(command -v adb || echo "$HOME/Android/Sdk/platform-tools/adb")}
+A="$ADB -s $TV_ADB"
 OUT=${OUT:-/tmp/movies-tv}; mkdir -p "$OUT"
 k() { for x in "$@"; do $A shell input keyevent "$x"; sleep 0.7; done; }
 shot() { $A exec-out screencap -p > "$OUT/$1.png"; echo "$OUT/$1.png"; }
@@ -20,7 +21,7 @@ plog() { $A logcat -d | grep -E " (I|W|E) PlaybackSession" | sed 's/^.*PlaybackS
 tv_token() { $A exec-out run-as ru.stenfredd.sleepyowl cat files/datastore/jellyfin_session.preferences_pb | grep -aoE '"token":"[0-9a-f]{32}"' | head -1 | grep -oE '[0-9a-f]{32}'; }
 # Что играет на ТВ по данным сервера: название, позиция (с), PlayMethod. X-Emby-Token сервер 12.x не принимает.
 sess() {
-  curl -s -H "Authorization: MediaBrowser Token=\"${TV_TOKEN:=$(tv_token)}\"" "http://192.168.1.10:8096/Sessions?activeWithinSeconds=60" |
+  curl -s -H "Authorization: MediaBrowser Token=\"${TV_TOKEN:=$(tv_token)}\"" "${JF_URL:?set JF_URL in local/dev.env}/Sessions?activeWithinSeconds=60" |
     python3 -c 'import json,sys
 for s in json.load(sys.stdin):
   n=s.get("NowPlayingItem")
@@ -51,8 +52,9 @@ install_release() {
 # Gradle может закончить с «failing tests» при успешном прогоне — тогда профиль копируется вручную.
 # PROFILE_SERIES — id сериала для прохода по странице сериала.
 gen_profile() {
+  : "${PROFILE_SERIES:?set PROFILE_SERIES in local/dev.env}"
   ANDROID_SERIAL=$TV_ADB ./gradlew :app:generateReleaseBaselineProfile -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true \
-    -Pandroid.testInstrumentationRunnerArguments.seriesId=${PROFILE_SERIES:-00000000000000000000000000000000}
+    -Pandroid.testInstrumentationRunnerArguments.seriesId=$PROFILE_SERIES
   local src="baselineprofile/build/outputs/connected_android_test_additional_output/nonMinifiedRelease/connected"
   src=$(find "$src" -name 'BaselineProfileGenerator_generate-startup-prof.txt' | head -1)
   [ -n "$src" ] || { echo "профиль не найден"; return 1; }

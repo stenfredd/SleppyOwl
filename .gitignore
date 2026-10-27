@@ -6,3 +6,9 @@ local.properties
 *.aab
 captures/
 .idea/
+
+# Personal, machine-local files: dev settings (local/dev.env), notes, test data, backups. Never in git.
+/local/
+# Debug tour built from one's own server by tools/tour/build_tour.py.
+/app/src/debug/assets/tour.json
+__pycache__/

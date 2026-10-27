@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checkpoint К2 on the test stand (LINUX_PLAN.md §3): the player window and the system integration, end to end.
+"""Checkpoint К2 on the test stand (docs/desktop.md): the player window and the system integration, end to end.
 
   tools/linux/k2.py            runs it; PASS/FAIL per check, screenshots in $STAND/shots/k2-*.png
 
@@ -7,18 +7,22 @@ Everything happens on the stand's display :87 and its own D-Bus (stand.sh): the 
 are not touched (mpv plays into ao=null), the app runs niced. The player's state is read back from MPRIS (status, position,
 volume, title), the windows from X11 (_NET_WM_STATE, geometry, frame), the screensaver from fake_screensaver.py.
 The player settings start from scratch (first launch) and are put back afterwards, as is the test account's watch data.
+Needs K2_EPISODES (three consecutive episodes) in local/dev.env, see tools/dev.env.example.
 """
 import os, re, shutil, subprocess, sys, time
 from Xlib import X, XK, display
 from Xlib.ext import xtest
 from PIL import Image
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import devenv
+
 R = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 STAND = os.environ.get("STAND") or os.path.expanduser("~/.cache/sleepyowl-test")
 STAND_SH = os.path.join(R, "tools/linux/stand.sh")
 PREFS = os.path.join(STAND, "config/sleepyowl")
 LOG = os.path.join(STAND, "state/sleepyowl/log/sleepyowl.log")
-E2, E3, E4 = "00000000000000000000000000000000", "00000000000000000000000000000000", "00000000000000000000000000000000"
+E2, E3, E4 = devenv.need("K2_EPISODES").split()
 results = []
 
 

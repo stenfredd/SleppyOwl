@@ -7,7 +7,7 @@ subtitle codec) and the pairs that matter for engine choice (container x codec, 
 Each entry also fixes which audio and subtitle track to select, so subtitle/audio codecs are actually exercised.
 
 Usage:
-  python3 tools/tour/build_tour.py --server http://192.168.1.10:8096 --token <token> [--out app/src/debug/assets/tour.json]
+  python3 tools/tour/build_tour.py --server http://<server>:8096 --token <token> [--out app/src/debug/assets/tour.json]
   python3 tools/tour/build_tour.py --input library.json ...   # reuse a saved /Items response
 Token from the TV: `source tools/tv/env.sh; tv_token`.
 """

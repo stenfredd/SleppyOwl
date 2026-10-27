@@ -5,7 +5,7 @@
 # (tools/linux/stand.sh) points them at its own directory.
 set -e
 R=$(cd "$(dirname "$0")/../.." && pwd)
-export JAVA_HOME=${JAVA_HOME:-$HOME/.jdks/jdk-21.0.12.1+1}
+source "$R/tools/devenv.sh"  # JAVA_HOME from local/dev.env, if set there
 [ -n "$DESKTOP_NOBUILD" ] || (cd "$R" && ./gradlew -q :desktop:classes :desktop:desktopClasspath)
-exec "$JAVA_HOME/bin/java" --add-opens=java.desktop/sun.awt.X11=ALL-UNNAMED --add-opens=java.desktop/sun.awt=ALL-UNNAMED \
+exec "${JAVA_HOME:+$JAVA_HOME/bin/}java" --add-opens=java.desktop/sun.awt.X11=ALL-UNNAMED --add-opens=java.desktop/sun.awt=ALL-UNNAMED \
   -cp "$(cat "$R/desktop/build/desktop.classpath")" ru.stenfredd.sleepyowl.desktop.MainKt "$@"

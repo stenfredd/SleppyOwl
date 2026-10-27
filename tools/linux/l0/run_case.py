@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """L0: один прогон файла в mpv с замерами через IPC.
 
-run_case.py <mpv: 037|041> <vo: gpu|gpu-next> <item_id> <name> [--sid N] [--aid N] [--sub-url URL]
+run_case.py <mpv: 037|041> <vo: gpu|gpu-next> <item_id> <name> [--sid N] [--aid N] [--sub-url URL|/path on the server]
            [--start SEC] [--play SEC] [--seek SEC] [--extra "--opt=val ..."]
 Печатает одну строку JSON с результатами в stdout.
 """
 import argparse, json, os, shlex, socket, subprocess, sys, threading, time
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+import devenv
+
 OUT = os.environ.get("L0_OUT") or os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "l0", "out")
 # mpv 0.37 из репозитория Mint (или распакованный из .deb без установки: apt download mpv; dpkg -x)
 M037 = os.environ.get("MPV037", "mpv")
-SERVER = "http://192.168.1.10:8096"
+SERVER = devenv.need("JF_URL")
 # Токен-заглушка: сервер отдаёт static-поток и без токена; проверяем, что заголовок доходит и не ломает запрос.
 HEADER = 'Authorization: MediaBrowser Token="0123456789abcdef0123456789abcdef"'
 
@@ -49,6 +52,7 @@ if a.start is not None: opts.append(f"--start={a.start}")
 else: opts.append("--start=40%")
 if a.sid: opts.append(f"--sid={a.sid}")
 if a.aid: opts.append(f"--aid={a.aid}")
+if a.sub_url and a.sub_url.startswith("/"): a.sub_url = SERVER + a.sub_url
 if a.sub_url: opts += [f"--sub-files-append={a.sub_url}", "--sid=auto"]
 opts += shlex.split(a.extra)
 

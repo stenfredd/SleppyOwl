@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Watch data of the test account on the server, before and after a test run (LINUX_PLAN.md §3 «Как проверяем»).
+"""Watch data of the test account on the server, before and after a test run (docs/desktop.md).
 
   watchdata.py snapshot [FILE]   saves the user's watch data (positions, played, counts, dates, favourites)
   watchdata.py diff [FILE]       what the run changed, compared with the snapshot
   watchdata.py restore [FILE]    puts the changed items back as they were in the snapshot
 
-FILE defaults to $STAND/watchdata.json. The user is the test account: its token is taken from the test stand's saved accounts
+FILE defaults to $STAND/watchdata.json. The user is JF_USER: its token is taken from the test stand's saved accounts
 ($STAND/config/sleepyowl/jellyfin_session.preferences_pb, STAND=~/.cache/sleepyowl-test) or from JF_TOKEN.
-JF_USER picks another saved account by name. Server: JF_URL, default the LAN address.
+Server JF_URL and user JF_USER come from local/dev.env (template tools/dev.env.example) or the environment.
 
 Restore writes the saved UserData back (POST /UserItems/{id}/UserData). An item the run started from nothing (not in
 the snapshot) is reset: played and its date removed (DELETE /UserPlayedItems), position and count back to 0.
@@ -15,9 +15,12 @@ The resume list follows LastPlayedDate, so its order comes back with the dates.
 """
 import json, os, re, sys, urllib.request
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import devenv
+
 STAND = os.environ.get("STAND") or os.path.expanduser("~/.cache/sleepyowl-test")
-URL = os.environ.get("JF_URL", "http://192.168.1.10:8096")
-USER = os.environ.get("JF_USER", "test")
+URL = devenv.need("JF_URL")
+USER = devenv.need("JF_USER")
 FIELDS = ("PlaybackPositionTicks", "PlayCount", "Played", "LastPlayedDate", "IsFavorite")
 
 

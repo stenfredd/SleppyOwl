@@ -4,6 +4,7 @@
   xinput.py click X Y [BUTTON]     move there and click (1 left, 3 right, 8 back)
   xinput.py dclick X Y             double click
   xinput.py move X Y
+  xinput.py drag X1 Y1 X2 Y2       press the left button at X1 Y1, move in steps to X2 Y2, release
   xinput.py key NAME [NAME…]       keys by keysym name: Escape Return Tab BackSpace Left …; "alt+Left" for a chord
   xinput.py type TEXT              types Latin text, digits and punctuation
   xinput.py wait SECONDS
@@ -52,6 +53,16 @@ def click(x, y, button=1, times=1):
         xtest.fake_input(d, X.ButtonRelease, int(button)); d.sync(); time.sleep(0.06)
 
 
+def drag(x1, y1, x2, y2, steps=20):
+    x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+    move(x1, y1)
+    xtest.fake_input(d, X.ButtonPress, 1); d.sync(); time.sleep(0.1)
+    for i in range(1, steps + 1):
+        xtest.fake_input(d, X.MotionNotify, x=x1 + (x2 - x1) * i // steps, y=y1 + (y2 - y1) * i // steps); d.sync(); time.sleep(0.03)
+    time.sleep(0.1)
+    xtest.fake_input(d, X.ButtonRelease, 1); d.sync(); time.sleep(0.1)
+
+
 SHIFTED = {c: True for c in '~!@#$%^&*()_+{}|:"<>?ABCDEFGHIJKLMNOPQRSTUVWXYZ'}
 NAMES = {" ": "space", ".": "period", ":": "colon", "/": "slash", "-": "minus", "_": "underscore", "@": "at"}
 
@@ -72,6 +83,7 @@ def run(cmd):
     if op == "click": click(args[0], args[1], args[2] if len(args) > 2 else 1)
     elif op == "dclick": click(args[0], args[1], times=2)
     elif op == "move": move(*args)
+    elif op == "drag": drag(*args)
     elif op == "key": [key(a) for a in args]
     elif op == "type": type_text(" ".join(args))
     elif op == "wait": time.sleep(float(args[0]))

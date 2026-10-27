@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -677,7 +678,9 @@ class PlaybackSession(
     private fun reportStopAsync(positionMs: Long, failed: Boolean) {
         // The owner's scope is being cancelled at this point; reporting must still reach the server.
         @Suppress("OPT_IN_USAGE")
-        kotlinx.coroutines.GlobalScope.launch { reportStop(positionMs, failed) }
+        val job = kotlinx.coroutines.GlobalScope.launch { reportStop(positionMs, failed) }
+        pendingStops += job
+        job.invokeOnCompletion { pendingStops -= job }
     }
 
     private fun log(message: String) {
@@ -691,17 +694,22 @@ class PlaybackSession(
         _state.update { it.copy(loading = false, error = "$message\n${cause?.message.orEmpty()}") }
     }
 
-    private companion object {
-        const val TICKS_PER_MS = 10_000L
-        const val MAX_BITRATE = 400_000_000
-        const val TICK_MS = 500L
-        const val PROGRESS_INTERVAL_MS = 10_000L
-        const val FIRST_FRAME_TIMEOUT_MS = 60_000L
-        const val STALL_TICK_MS = 1000L
-        const val STALL_TIMEOUT_MS = 8_000L
+    companion object {
+        private val pendingStops: MutableSet<Job> = java.util.Collections.synchronizedSet(mutableSetOf())
+
+        /** For an app about to exit (the desktop): waits until the stop reports already sent off are done. */
+        suspend fun awaitStopReports() = synchronized(pendingStops) { pendingStops.toList() }.joinAll()
+
+        private const val TICKS_PER_MS = 10_000L
+        private const val MAX_BITRATE = 400_000_000
+        private const val TICK_MS = 500L
+        private const val PROGRESS_INTERVAL_MS = 10_000L
+        private const val FIRST_FRAME_TIMEOUT_MS = 60_000L
+        private const val STALL_TICK_MS = 1000L
+        private const val STALL_TIMEOUT_MS = 8_000L
         /** Seeking rebuffers and drops a few frames: give the engine time to settle before judging it. */
-        const val SEEK_GRACE_MS = 5_000L
-        const val DROP_WINDOW_TICKS = 10
-        const val MAX_DROPPED_SHARE = 0.25
+        private const val SEEK_GRACE_MS = 5_000L
+        private const val DROP_WINDOW_TICKS = 10
+        private const val MAX_DROPPED_SHARE = 0.25
     }
 }

@@ -25,6 +25,7 @@ include(":playback:api")
 include(":playback:core")
 include(":playback:engine-exo")
 include(":playback:engine-vlc")
+include(":playback:engine-mpv")
 include(":ui:shared")
 
 // SleepyOwl for the Linux desktop (LINUX_PLAN.md).

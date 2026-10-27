@@ -16,22 +16,21 @@ import ru.stenfredd.sleepyowl.core.common.PreferenceStores
 import ru.stenfredd.sleepyowl.core.common.desktopAppDirs
 import ru.stenfredd.sleepyowl.core.jellyfin.DesktopJellyfinPlatform
 import ru.stenfredd.sleepyowl.core.jellyfin.JellyfinPlatform
-import ru.stenfredd.sleepyowl.playback.api.DeviceCapabilities
-import ru.stenfredd.sleepyowl.playback.core.DeviceCapabilitiesProbe
 import ru.stenfredd.sleepyowl.ui.UiPlatform
 import java.io.File
 
 /**
- * Koin: the desktop parts of the shared core and UI. The shared modules are listed in [main]; the mpv engine comes
- * with L6.
+ * Koin: the desktop parts of the shared core and UI. The shared modules and the mpv engine (with the PC's device probe)
+ * are listed in [main].
  */
-fun desktopModule(scale: UiScale) = module {
+fun desktopModule() = module {
     single { desktopAppDirs() }
     singleOf(::PreferenceStores)
+    singleOf(::DesktopSettings)
     single<JellyfinPlatform> { DesktopJellyfinPlatform() }
-    single<DeviceCapabilitiesProbe> { DesktopCapabilitiesProbe() }
-    single<UiPlatform> { DesktopUiPlatform(scale) }
-    singleOf(::ProtoPlayer)
+    single<UiPlatform> { DesktopUiPlatform(get()) }
+    singleOf(::DesktopPlayer)
+    singleOf(::SystemMedia)
 }
 
 /** The places of the app's files besides [AppDirs]: the log and the single-instance lock. */
@@ -51,38 +50,12 @@ object DesktopPaths {
         File(System.getenv(variable)?.takeIf { it.isNotBlank() } ?: (System.getProperty("user.home") + "/" + default), "sleepyowl")
 }
 
-/**
- * The UI's size: 1 dp of the TV layouts is 1 px at 100 % (LINUX_PLAN.md §1.4), times the system's own scale (GDK_SCALE,
- * Xft.dpi). [factor] is "Масштаб интерфейса"; until the settings have it (L9) it comes from `SLEEPYOWL_SCALE`.
- */
-class UiScale(val factor: Float) {
-    companion object {
-        fun fromEnvironment() = UiScale(System.getenv("SLEEPYOWL_SCALE")?.toFloatOrNull()?.coerceIn(0.5f, 3f) ?: 1f)
-    }
-}
-
-private class DesktopUiPlatform(private val scale: UiScale) : UiPlatform {
+private class DesktopUiPlatform(private val settings: DesktopSettings) : UiPlatform {
     override val density: Float
-        get() = scale.factor * systemScale()
+        get() = settings.scaleFactor * systemScale()
     override val version = "${BuildInfo.VERSION} · desktop"
     override val device = "${System.getProperty("os.name")} ${System.getProperty("os.version")} · ${hostname()}"
     override val tourAvailable = false
-}
-
-/** Until the mpv engine (L6): the probe has nothing to report, every format is mpv's. */
-private class DesktopCapabilitiesProbe : DeviceCapabilitiesProbe {
-    override val capabilities = DeviceCapabilities(
-        manufacturer = "PC",
-        model = hostname(),
-        soc = System.getProperty("os.arch"),
-        sdkInt = 0,
-        abis = listOf(System.getProperty("os.arch")),
-        videoDecoders = emptyList(),
-        audioDecoders = emptyList(),
-        displayHdrTypes = emptySet(),
-        displayModes = emptyList(),
-        passthroughEncodings = emptySet(),
-    )
 }
 
 object BuildInfo {

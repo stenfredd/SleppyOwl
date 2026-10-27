@@ -60,6 +60,19 @@ fun App(window: java.awt.Window, keys: BackKeys) {
         Log.i("Session restored: %s", if (loggedIn) "logged in" else "login screen")
         stack = NavStack(if (loggedIn) root(session, Tab.Home) else Screen.Login)
     }
+    // "К сериалу" in the player: the page opens here, and this window comes up.
+    val player = koinInject<DesktopPlayer>()
+    DisposableEffect(player, stack) {
+        player.openPage = { screen ->
+            stack?.push(screen)
+            (window as? java.awt.Frame)?.let { SwingUtilities.invokeLater { raise(it) } }
+        }
+        player.showLibrary = { (window as? java.awt.Frame)?.let { SwingUtilities.invokeLater { raise(it) } } }
+        onDispose {
+            player.openPage = {}
+            player.showLibrary = {}
+        }
+    }
     val dispatcher = remember { BackDispatcher() }
     val entry = remember { KeyboardEntry() }
     val onBack = { stack?.let { back(dispatcher, it) } }
@@ -150,7 +163,7 @@ private fun BackButton(window: java.awt.Window, onBack: () -> Unit) {
 
 @Composable
 private fun Navigation(stack: NavStack, session: JellyfinSession, onBack: () -> Unit) {
-    val player = koinInject<ProtoPlayer>()
+    val player = koinInject<DesktopPlayer>()
     fun open(screen: Screen) {
         if (screen is Screen.Player) player.play(screen) else stack.push(screen)
     }

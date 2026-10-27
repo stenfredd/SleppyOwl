@@ -10,6 +10,7 @@ kotlin { jvmToolchain(21) }
 
 dependencies {
     implementation(project(":ui:shared"))
+    implementation(project(":playback:engine-mpv"))
     implementation(compose.desktop.currentOs)
     implementation(libs.koin.core)
     implementation(libs.koin.compose.viewmodel)
@@ -17,6 +18,8 @@ dependencies {
     implementation(libs.coil.network.okhttp)
     implementation(libs.kotlinx.coroutines.swing)
     implementation(libs.jna)
+    implementation(libs.dbus.java.core)
+    implementation(libs.dbus.java.unixsocket)
 
     testImplementation(libs.junit)
     testImplementation(libs.koin.test)
@@ -28,7 +31,7 @@ val awtOpens = listOf("--add-opens=java.desktop/sun.awt.X11=ALL-UNNAMED", "--add
 compose.desktop {
     application {
         mainClass = "ru.stenfredd.sleepyowl.desktop.MainKt"
-        jvmArgs += awtOpens + "-Dsleepyowl.repo=${rootDir.path}"
+        jvmArgs += awtOpens
     }
 }
 

@@ -40,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import ru.stenfredd.sleepyowl.core.data.LanguageSettings
 import ru.stenfredd.sleepyowl.core.data.SubtitleMode
@@ -71,6 +72,8 @@ private enum class Section(val title: String, val dot: Color) {
     Playback("Воспроизведение", AppColors.Blue),
     Languages("Языки", AppColors.Pink),
     Subtitles("Вид субтитров", AppColors.Yellow),
+    Desktop("Компьютер", AppColors.Orange),
+    Keys("Клавиши", AppColors.Accent),
     Account("Аккаунт и сервер", AppColors.Green),
     About("О приложении", AppColors.TextDim),
 }
@@ -82,7 +85,7 @@ private data class Option<T>(val value: T, val label: String, val detail: String
 /**
  * Settings tab, as on the TV without its TV-only settings (video output, Dolby Vision, the debug tour): sections on the
  * left, the chosen section's settings on the right as rows of chips. Every choice applies at once. The desktop's own
- * settings (interface scale, the player window) come with L9.
+ * settings are in "Компьютер" (interface scale, the player window), the keys and the mouse in "Клавиши" (L9).
  */
 @Composable
 fun SettingsScreen(
@@ -118,6 +121,8 @@ fun SettingsScreen(
                             Section.Playback -> PlaybackSection(vm, focus)
                             Section.Languages -> LanguagesSection(vm, focus)
                             Section.Subtitles -> SubtitlesSection(vm, focus)
+                            Section.Desktop -> DesktopSection(focus)
+                            Section.Keys -> KeysSection()
                             Section.Account -> AccountSection(vm, focus, onOpen, onSignedOut, onSwitched)
                             Section.About -> AboutSection(vm)
                         }
@@ -306,6 +311,106 @@ private fun SubtitlesSection(vm: SettingsViewModel, focus: ScreenFocus) {
         "Для текстовых субтитров (SRT, VTT) на этом компьютере, для всех профилей. У субтитров ASS своё оформление из файла, " +
             "графические (PGS, DVD) показываются как есть. То же можно настроить в плеере.",
     )
+}
+
+// --- Компьютер ---
+
+@Composable
+private fun DesktopSection(focus: ScreenFocus) {
+    val settings = koinInject<DesktopSettings>()
+    val placement = koinInject<DesktopPlayer>().placement
+
+    Setting("Масштаб интерфейса", "Размер текста, карточек и кнопок в окнах приложения, поверх масштаба системы.") {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Choices("scale", DesktopSettings.SCALES.map { Option(it, "$it %") }, settings.scalePercent, focus, settings::changeScale)
+            settings.scaleOverride?.let { Note("Сейчас действует SLEEPYOWL_SCALE=$it из окружения — он важнее этой настройки.", color = AppColors.Yellow) }
+        }
+    }
+    Setting(
+        "Открывать плеер",
+        "В каком виде открывается окно плеера. «Как в прошлый раз» — в том режиме, в котором его закрыли. " +
+            "Режим можно сменить в любой момент: T, F, двойной щелчок по видео.",
+    ) {
+        val options = listOf(
+            Option(PlayerOpening.Last, "Как в прошлый раз"),
+            Option(PlayerOpening.Mini, "Мини поверх всех"),
+            Option(PlayerOpening.Window, "Обычное окно"),
+            Option(PlayerOpening.Fullscreen, "Во весь экран"),
+        )
+        Choices("player-opening", options, settings.playerOpening, focus, settings::changePlayerOpening)
+    }
+    Setting("Мини-окно на всех рабочих столах", "Мини-окно плеера остаётся на экране при переключении рабочих столов.") {
+        Choices("sticky", listOf(Option(false, "Выкл"), Option(true, "Вкл")), placement.sticky, focus, placement::saveSticky)
+    }
+}
+
+// --- Клавиши ---
+
+private val PlayerKeysTable = listOf(
+    "Пробел, K" to "Пауза и продолжение",
+    "← / →" to "Назад и вперёд на 10 с",
+    "Shift + ← / →" to "Назад и вперёд на 60 с",
+    "1 … 9" to "К 10 … 90 % фильма или серии",
+    "↑ / ↓" to "Громкость",
+    "M" to "Без звука",
+    "S" to "Пропустить заставку или титры",
+    "N / Shift + N" to "Следующая и предыдущая серия",
+    "A" to "Следующая аудиодорожка",
+    "C" to "Следующие субтитры",
+    "F" to "Весь экран",
+    "T" to "Мини поверх всех или обычное окно",
+    "Esc" to "Закрыть меню или панель, выйти из полноэкранного",
+    "Ctrl + W" to "Закрыть плеер",
+    "Медиаклавиши" to "Пауза, следующая и предыдущая серия — даже когда плеер не в фокусе",
+)
+
+private val PlayerMouseTable = listOf(
+    "Щелчок" to "Пауза и продолжение",
+    "Двойной щелчок" to "Мини → окно → весь экран",
+    "Колесо" to "Громкость; над таймлайном — ±5 с",
+    "Правая кнопка" to "Меню плеера",
+    "Мини-окно" to "Тянуть за видео — переместить, за край или угол — размер",
+)
+
+private val LibraryKeysTable = listOf(
+    "Стрелки" to "Переход между карточками и кнопками",
+    "Enter" to "Открыть",
+    "Esc, Backspace, Alt + ←" to "Назад; ещё — кнопка мыши «назад»",
+    "Ctrl + F, /" to "Поиск",
+    "Правая кнопка" to "Отметить просмотренным или непросмотренным",
+)
+
+/** The keys and the mouse (§1.3): the player works by the physical keys, so in the Russian layout too. */
+@Composable
+private fun KeysSection() {
+    KeyTable("Плеер", PlayerKeysTable)
+    KeyTable("Мышь в плеере", PlayerMouseTable)
+    KeyTable("Медиатека", LibraryKeysTable)
+    Note("Клавиши плеера работают по физическим кнопкам — и в русской раскладке.")
+}
+
+@Composable
+private fun KeyTable(title: String, rows: List<Pair<String, String>>) {
+    Setting(title, null) {
+        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            for ((keys, action) in rows) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.width(190.dp)) {
+                        BasicText(
+                            keys,
+                            Modifier
+                                .background(AppColors.SurfaceRaised, RoundedCornerShape(5.dp))
+                                .border(0.5.dp, AppColors.Border, RoundedCornerShape(5.dp))
+                                .padding(horizontal = 7.dp, vertical = 3.dp),
+                            style = AppType.MonoMeta,
+                            maxLines = 1,
+                        )
+                    }
+                    BasicText(action, Modifier.widthIn(max = 420.dp), style = AppType.Body.copy(color = AppColors.TextSecondary))
+                }
+            }
+        }
+    }
 }
 
 // --- Аккаунт и сервер ---

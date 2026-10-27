@@ -3,8 +3,8 @@
 
   tools/linux/k2.py            runs it; PASS/FAIL per check, screenshots in $STAND/shots/k2-*.png
 
-Everything happens on the stand's display :87 and its own D-Bus (stand.sh): the user's screen, focus and desktop are
-not touched; the video is muted, the app runs niced. The player's state is read back from MPRIS (status, position,
+Everything happens on the stand's display :87 and its own D-Bus (stand.sh): the user's screen, focus, desktop and sound
+are not touched (mpv plays into ao=null), the app runs niced. The player's state is read back from MPRIS (status, position,
 volume, title), the windows from X11 (_NET_WM_STATE, geometry, frame), the screensaver from fake_screensaver.py.
 The player settings start from scratch (first launch) and are put back afterwards, as is the test account's watch data.
 """
@@ -202,7 +202,7 @@ def run_logs():
 
 
 def start_app(item, start):
-    env = dict(os.environ, DESKTOP_NOBUILD="1", SLEEPYOWL_MPV_OPTIONS="mute=yes")
+    env = dict(os.environ, DESKTOP_NOBUILD="1", SLEEPYOWL_MPV_OPTIONS="ao=null")
     subprocess.run(["nice", "-n", "15", STAND_SH, "app", "--play", item, "--start", str(start)], env=env, check=True, capture_output=True)
     ok = wait(lambda: mpris_present() and player() and (mpris("Metadata") or ""), 60, 0.5)
     time.sleep(2)
@@ -359,6 +359,7 @@ try:
     shot("before-close")
     click(p["x"] + p["w"] - 21, p["y"] + 21); time.sleep(2)
     check("× closes the player, library stays", player() is None and library() is not None)
+    check("…and the library has the focus", "FOCUSED" in library()["states"], library()["states"])
     calls = [l for l in ss_lines() if l.startswith(("Inhibit", "UnInhibit"))]
     check("MPRIS gone, screensaver allowed", not mpris_present() and calls and calls[-1].startswith("UnInhibit"), calls[-2:])
     sh(STAND_SH, "stop")

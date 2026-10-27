@@ -186,8 +186,9 @@ private fun Navigation(stack: NavStack, session: JellyfinSession, onBack: () -> 
             is Screen.Series -> Page(onBack) { SeriesScreen(screen, onOpen = ::open) }
             is Screen.Person -> Page(onBack) { PersonScreen(screen, onOpen = ::open) }
             is Screen.Items -> Page(onBack) { ItemsScreen(screen, onOpen = ::open) }
-            // The player opens in its own window; licences and the debug tour are the TV's.
-            is Screen.Player, is Screen.License, is Screen.Tour -> Unit
+            is Screen.License -> Page(onBack) { LicenseScreen(screen) }
+            // The player opens in its own window; the debug tour is the TV's.
+            is Screen.Player, is Screen.Tour -> Unit
         }
     }
 }

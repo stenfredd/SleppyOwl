@@ -565,8 +565,8 @@ internal fun PlayerContent(
                     onOnTop = ::toggleOnTop, onLibrary = ::showLibrary, onClose = onClose,
                 )
                 OsdLayout.Compact -> CompactOsd(
-                    state, info, ui, shownPosition, plan?.spans.orEmpty(), playing, player,
-                    onToggle = session::togglePlayPause, onSeek = ::scrubBy, onScrub = ::scrubTo,
+                    state, info, episodes, ui, shownPosition, plan?.spans.orEmpty(), playing, player,
+                    onToggle = session::togglePlayPause, onSeek = ::scrubBy, onScrub = ::scrubTo, onEpisode = ::playEpisode,
                     onVolume = ::setVolume, onMute = ::toggleMute, onMenu = { ui.menuAt = it }, onFullscreen = ::toggleFullscreen,
                     onOnTop = ::toggleOnTop, onLibrary = ::showLibrary, onClose = onClose,
                 )
@@ -753,11 +753,12 @@ internal fun FullOsd(
     }
 }
 
-/** 480–900 px: a thin title line with × on top, one row at the bottom; panels from ⋯. */
+/** 480–900 px: a thin title line with × on top, one row at the bottom (⏮ ⏯ ⏭ for an episode); panels from ⋯. */
 @Composable
 internal fun CompactOsd(
     state: PlaybackUiState,
     info: PlayerInfo?,
+    episodes: SeasonEpisodes?,
     ui: PlayerUiState,
     positionMs: Long,
     spans: List<MediaSegment>,
@@ -766,6 +767,7 @@ internal fun CompactOsd(
     onToggle: () -> Unit,
     onSeek: (Long) -> Unit,
     onScrub: (Long, Boolean) -> Unit,
+    onEpisode: (UUID) -> Unit,
     onVolume: (Int) -> Unit,
     onMute: () -> Unit,
     onMenu: (Offset) -> Unit,
@@ -789,9 +791,17 @@ internal fun CompactOsd(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                PlayButton(playing, 36.dp, onClick = onToggle)
-                IconButton(AppIcon.Replay, 32.dp, 15.dp, onClick = { onSeek(-10_000) }, bare = true)
-                IconButton(AppIcon.Forward, 32.dp, 15.dp, onClick = { onSeek(10_000) }, bare = true)
+                // An episode: ⏮ ⏯ ⏭ — in a small window the episodes matter more than ±10 s (←/→ and the wheel over
+                // the timeline still seek); a movie: ⏯ ⟲ ⟳.
+                if (episodes != null) {
+                    IconButton(AppIcon.Previous, 32.dp, 13.dp, onClick = { episodes.previous?.let(onEpisode) }, bare = true)
+                    PlayButton(playing, 36.dp, onClick = onToggle)
+                    IconButton(AppIcon.Next, 32.dp, 13.dp, onClick = { episodes.next?.let(onEpisode) }, bare = true)
+                } else {
+                    PlayButton(playing, 36.dp, onClick = onToggle)
+                    IconButton(AppIcon.Replay, 32.dp, 15.dp, onClick = { onSeek(-10_000) }, bare = true)
+                    IconButton(AppIcon.Forward, 32.dp, 15.dp, onClick = { onSeek(10_000) }, bare = true)
+                }
                 TimeLabel(positionMs, state.durationMs, Modifier.padding(horizontal = 4.dp))
                 Timeline(
                     positionMs, state.durationMs, state.bufferedMs, info?.chaptersMs.orEmpty(), spans, ui,

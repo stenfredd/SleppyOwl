@@ -58,10 +58,6 @@ private class DesktopUiPlatform(private val settings: DesktopSettings) : UiPlatf
     override val tourAvailable = false
 }
 
-object BuildInfo {
-    const val VERSION = "0.1.0"
-}
-
 /**
  * Images: the API's client (`ServerRouting` sends them to the LAN address at home), a disk cache in
  * `~/.cache/sleepyowl/images` that keeps posters across launches, a memory cache of a quarter of the heap.

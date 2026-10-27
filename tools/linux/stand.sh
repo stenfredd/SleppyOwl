@@ -2,6 +2,8 @@
 # Test stand of the desktop app (LINUX_PLAN.md §3 «Как проверяем»): a private virtual display :87 with the real
 # window manager (Muffin), so window, mouse and keyboard tests do not touch the user's screen. Muffin and the app share
 # the stand's own D-Bus session bus: the app's MPRIS player and screensaver calls never reach the user's desktop.
+# mpv plays into no sound device (ao=null, unless SLEEPYOWL_MPV_OPTIONS says otherwise): the stand never touches the
+# user's PipeWire — WirePlumber remembers a stream's mute by its role, and that would follow the user's own viewing.
 #
 #   stand.sh up                 start Xvfb :87 (1920×1080), the stand's D-Bus and Muffin, if not running
 #   stand.sh down               stop the app, Muffin and Xvfb
@@ -14,7 +16,8 @@
 #
 # The app's files live in $STAND (default ~/.cache/sleepyowl-test): its own config with the test account,
 # cache, log and lock — the user's own ~/.config/sleepyowl is never used. Gradle builds before `app` unless
-# DESKTOP_NOBUILD=1.
+# DESKTOP_NOBUILD=1. SLEEPYOWL_APP=<launcher> runs that instead of the Gradle build, e.g. the packaged app unpacked by
+# `dpkg-deb -x sleepyowl_*.deb DIR` → SLEEPYOWL_APP=DIR/opt/sleepyowl/bin/sleepyowl (also for k2.py).
 set -e
 R=$(cd "$(dirname "$0")/../.." && pwd)
 STAND=${STAND:-$HOME/.cache/sleepyowl-test}
@@ -60,9 +63,9 @@ case "$1" in
     shift
     up >/dev/null
     stop_app
-    [ -n "$DESKTOP_NOBUILD" ] || (cd "$R" && ./gradlew -q :desktop:classes :desktop:desktopClasspath)
+    [ -n "$DESKTOP_NOBUILD$SLEEPYOWL_APP" ] || (cd "$R" && ./gradlew -q :desktop:classes :desktop:desktopClasspath)
     DISPLAY=$D DBUS_SESSION_BUS_ADDRESS=$(cat "$STAND/run/dbus.addr") XDG_CONFIG_HOME="$STAND/config" XDG_CACHE_HOME="$STAND/cache" XDG_STATE_HOME="$STAND/state" \
-      SLEEPYOWL_RUNTIME_DIR="$STAND/run" DESKTOP_NOBUILD=1 "$R/tools/linux/desktop.sh" "$@" >"$STAND/app.out" 2>&1 &
+      SLEEPYOWL_RUNTIME_DIR="$STAND/run" SLEEPYOWL_MPV_OPTIONS="${SLEEPYOWL_MPV_OPTIONS:-ao=null}" DESKTOP_NOBUILD=1 "${SLEEPYOWL_APP:-$R/tools/linux/desktop.sh}" "$@" >"$STAND/app.out" 2>&1 &
     echo $! >"$STAND/run/app.pid"
     echo "app started, pid $(cat "$STAND/run/app.pid")" ;;
   stop) stop_app ;;
@@ -72,5 +75,5 @@ case "$1" in
   in) shift; DISPLAY=$D python3 "$R/tools/linux/xinput.py" "$@" ;;
   log) cat "$STAND/state/sleepyowl/log/sleepyowl.log" ;;
   bus) shift; DBUS_SESSION_BUS_ADDRESS=$(cat "$STAND/run/dbus.addr") "$@" ;;
-  *) sed -n '2,19p' "$0"; exit 1 ;;
+  *) sed -n '2,21p' "$0"; exit 1 ;;
 esac

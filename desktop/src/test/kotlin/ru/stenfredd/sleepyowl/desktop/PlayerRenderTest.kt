@@ -69,8 +69,8 @@ class PlayerRenderTest {
         }
         render("compact", 720, 405) {
             CompactOsd(
-                state, info, PlayerUiState(), state.positionMs, spans, playing = false, player,
-                onToggle = {}, onSeek = {}, onScrub = { _, _ -> }, onVolume = {}, onMute = {}, onMenu = {}, onFullscreen = {}, onOnTop = {}, onLibrary = {}, onClose = {},
+                state, info, season, PlayerUiState(), state.positionMs, spans, playing = false, player,
+                onToggle = {}, onSeek = {}, onScrub = { _, _ -> }, onEpisode = {}, onVolume = {}, onMute = {}, onMenu = {}, onFullscreen = {}, onOnTop = {}, onLibrary = {}, onClose = {},
             )
             val ui = PlayerUiState()
             PlayerMenu(listOf(listOf(MenuItem("Во весь экран", "F") {}), listOf(MenuItem("Аудио", "A") {}, MenuItem("Субтитры", "C") {}), listOf(MenuItem("Закрыть плеер", "Ctrl+W") {})), Offset(380f, 60f), ui, onDismiss = {})

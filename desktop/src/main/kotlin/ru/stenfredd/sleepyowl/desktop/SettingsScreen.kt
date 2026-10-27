@@ -124,7 +124,7 @@ fun SettingsScreen(
                             Section.Desktop -> DesktopSection(focus)
                             Section.Keys -> KeysSection()
                             Section.Account -> AccountSection(vm, focus, onOpen, onSignedOut, onSwitched)
-                            Section.About -> AboutSection(vm)
+                            Section.About -> AboutSection(vm, focus, onOpen)
                         }
                     }
                 }
@@ -522,7 +522,7 @@ private fun InfoLine(key: String, value: String) {
 // --- О приложении ---
 
 @Composable
-private fun AboutSection(vm: SettingsViewModel) {
+private fun AboutSection(vm: SettingsViewModel, focus: ScreenFocus, onOpen: (Screen) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OwlMark()
@@ -531,6 +531,39 @@ private fun AboutSection(vm: SettingsViewModel) {
         BasicText("Версия ${vm.about.version}", style = AppType.MonoMeta)
         BasicText(vm.about.device, style = AppType.MonoMeta.copy(color = AppColors.TextDim))
     }
-    // The list of components and their licences comes with the package (L10): the desktop is built from other parts.
-    Note("Приложение — свободное ПО под лицензией GPL-3.0.")
+    Setting("Лицензии", "Приложение — свободное ПО под лицензией GPL-3.0. Ниже — из чего оно собрано; щелчок — текст лицензии.") {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            for ((i, c) in (listOf(Licenses.app) + Licenses.components).withIndex()) {
+                LicenseRow(c, { onOpen(Screen.License(c.name, c.license, c.asset)) }, Modifier.hoverFocus().remembered(focus, "license/$i"))
+            }
+        }
+    }
+}
+
+private val RowFocus = FocusStyle(scale = 1f, corner = 7.dp, ring = 0.5.dp, glows = listOf(FocusStyle.Glow(15.dp, 0.dp, Color(0x737C5CFF))))
+
+@Composable
+private fun LicenseRow(component: Component, onClick: () -> Unit, modifier: Modifier) {
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(7.dp)
+    Row(
+        modifier
+            .focusCard(RowFocus)
+            .widthIn(max = 560.dp)
+            .fillMaxWidth()
+            .height(34.dp)
+            .background(if (focused) AppColors.SurfaceFocused else AppColors.Surface, shape)
+            .border(0.5.dp, if (focused) AppColors.Accent else AppColors.BorderSubtle, shape)
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(interactionSource = null, indication = null, onClick = onClick)
+            .padding(horizontal = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        BasicText(component.name, style = AppType.CardTitle.copy(fontSize = 12.sp, fontWeight = FontWeight.SemiBold), maxLines = 1)
+        component.note?.let {
+            BasicText(it, Modifier.weight(1f), style = AppType.Body.copy(fontSize = 10.5.sp, color = AppColors.TextDim), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        } ?: Box(Modifier.weight(1f))
+        BasicText(component.license, style = AppType.MonoCaption.copy(color = AppColors.Accent), maxLines = 1)
+    }
 }

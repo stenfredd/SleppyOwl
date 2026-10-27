@@ -71,7 +71,11 @@ internal class PlayerFrame(private val player: DesktopPlayer) {
     fun dispose() {
         saveTimer.stop()
         savePlace()
+        // A player with the focus (closed by ×, Ctrl+W, the menu, or a movie watched to its end) hands it to the
+        // library, not to whatever window the window manager picks. Played in the background, the focus stays put.
+        val hadFocus = window.isActive
         window.dispose()
+        if (hadFocus) player.showLibrary()
     }
 
     /** Puts the window in the player's mode as it changes, and the mini window in the video's proportions. */

@@ -1,6 +1,6 @@
-// SleepyOwl for the Linux desktop (LINUX_PLAN.md): windows, desktop screens, later the mpv player and system integration.
+// SleepyOwl for the Linux desktop (docs/desktop.md): windows, desktop screens, the mpv player and system integration.
 // Run: ./gradlew :desktop:run, or tools/linux/desktop.sh without Gradle around the process.
-// Package: ./gradlew :desktop:packageDeb → desktop/build/deb/sleepyowl_<version>_amd64.deb (LINUX_PLAN.md L10).
+// Package: ./gradlew :desktop:packageDeb → desktop/build/deb/sleepyowl_<version>_amd64.deb.
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.PosixFilePermissions

@@ -21,7 +21,7 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
- * mpv's picture, variant B of LINUX_PLAN.md §2.3: mpv draws in its own invisible OpenGL context (EGL pbuffer) on its
+ * mpv's picture, variant B of docs/desktop.md: mpv draws in its own invisible OpenGL context (EGL pbuffer) on its
  * own thread, into an FBO; the frame is read back through a persistently mapped PBO into memory that Compose shows
  * ([MpvVideoSurface]). mpv knows nothing about the window, so the window can be rebuilt freely.
  *

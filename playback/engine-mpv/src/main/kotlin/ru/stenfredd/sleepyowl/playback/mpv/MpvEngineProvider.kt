@@ -26,7 +26,7 @@ val mpvEngineModule = module {
 
 /**
  * mpv plays everything ffmpeg demuxes and decodes, in hardware where the GPU can (NVDEC, VAAPI), otherwise on the CPU,
- * which a PC can afford. HDR and Dolby Vision are tone-mapped to SDR (the desktop has no HDR output, LINUX_PLAN.md §0).
+ * which a PC can afford. HDR and Dolby Vision are tone-mapped to SDR (the desktop has no HDR output, see docs/desktop.md).
  */
 class MpvEngineProvider : EngineProvider {
     override val id = ID

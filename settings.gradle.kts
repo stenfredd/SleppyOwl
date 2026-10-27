@@ -28,5 +28,5 @@ include(":playback:engine-vlc")
 include(":playback:engine-mpv")
 include(":ui:shared")
 
-// SleepyOwl for the Linux desktop (LINUX_PLAN.md).
+// SleepyOwl for the Linux desktop (docs/desktop.md).
 include(":desktop")

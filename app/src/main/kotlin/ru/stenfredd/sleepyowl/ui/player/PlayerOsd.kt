@@ -54,7 +54,7 @@ import ru.stenfredd.sleepyowl.ui.theme.AppType
  * The player's controls ("OSD") as drawn in the mockup's player screen; sizes are the mockup's px / 2.
  * Everything here is drawn over the video, which on TVs sits on its own hardware plane: the UI layer is only
  * redrawn when something in it changes (a second of the clock, a focus move), so the shades cost nothing while
- * the picture plays. Through the GPU path (SDR on the Xiaomi TV) every video frame redraws them, see APP_PLAN.md.
+ * the picture plays. Through the GPU path (SDR on the Xiaomi TV) every video frame redraws them, see docs/ui-performance.md.
  */
 
 internal object OsdColors {

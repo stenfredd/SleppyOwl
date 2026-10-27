@@ -1,4 +1,4 @@
-// The desktop's playback engine (LINUX_PLAN.md §2.3): libmpv through JNA, video drawn offscreen and shown in Compose.
+// The desktop's playback engine (docs/desktop.md): libmpv through JNA, video drawn offscreen and shown in Compose.
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.compose)

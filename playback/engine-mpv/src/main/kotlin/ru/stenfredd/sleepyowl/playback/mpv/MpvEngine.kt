@@ -28,7 +28,7 @@ import kotlin.concurrent.thread
 import kotlin.math.roundToInt
 
 /**
- * libmpv engine of the desktop (LINUX_PLAN.md §2.3). One mpv core per playback, without a window of its own
+ * libmpv engine of the desktop (docs/desktop.md). One mpv core per playback, without a window of its own
  * (`vo=libmpv`): the picture comes out of [video] and is shown by [MpvVideoSurface].
  *
  * Commands go to mpv asynchronously, so the UI thread never waits on the core; mpv's events and observed properties are

@@ -7,13 +7,54 @@
 | Что | Команда |
 |---|---|
 | ТВ, debug | `./gradlew :app:assembleDebug` → `app/build/outputs/apk/debug/app-debug.apk` |
-| ТВ, release | `./gradlew :app:assembleRelease` — R8 без обфускации, пока подписан debug-ключом; ABI `armeabi-v7a` + `arm64-v8a` |
+| ТВ, release | `./gradlew :app:assembleRelease` — R8 без обфускации, ключ — ниже; ABI `armeabi-v7a` + `arm64-v8a` |
 | ПК, запуск | `./gradlew :desktop:run` или `tools/linux/desktop.sh` (без Gradle вокруг процесса) |
 | ПК, пакет | `./gradlew :desktop:packageDeb` → `desktop/build/deb/sleepyowl_<версия>_amd64.deb` (зависит от `libmpv2`) |
 | Тесты | `./gradlew test` (в т.ч. рендер-тесты экранов ПК и `ui:shared` без дисплея) |
 
 Производительность интерфейса на ТВ мерить только на release-сборке (см. [ui-performance.md](ui-performance.md)).
 Baseline profile лежит в `app/src/release/generated/baselineProfiles/` и снимается заново на ТВ (`gen_profile`, ниже).
+
+Версия обоих приложений — `sleepyowl.versionName` в `gradle.properties` (или `-Psleepyowl.versionName=…`);
+`versionCode` APK следует за ней (`1.2.3` → `1002003`). Release-APK подписывается ключом из `ANDROID_KEYSTORE`
+(+ `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, по умолчанию `sleepyowl`), без него — debug-ключом машины.
+
+## CI: релизы в Gitea
+
+`.gitea/workflows/release.yaml`: на пуш в `master` APK и .deb собираются в Docker и выкладываются на страницу
+Releases репозитория как тег `v<версия>` (APK `sleepyowl-<версия>.apk`, `.deb` как его назвал `packageDeb`).
+
+- **Версия.** Каждый релиз — patch на единицу выше прошлого тега (`v0.1.1` → `0.1.2`). Чтобы начать новую minor или
+  major, поднять `sleepyowl.versionName` в `gradle.properties` выше последнего релиза — следующий релиз возьмёт её.
+  Первый релиз — версия из `gradle.properties`. Пуш, который не менял приложения (только `docs/`, `tools/`,
+  `.gitea/`, `baselineprofile/`, тесты, `*.md`), релиза не делает.
+- **Сборка.** `tools/ci/Dockerfile` — образ с JDK 21 и Android SDK; `tools/ci/release.Dockerfile` собирает в нём
+  `:app:assembleRelease :desktop:packageDeb` (`tools/ci/release.sh`) целиком внутри BuildKit: исходники — контекст
+  сборки, ключ — BuildKit-секреты (в слои не попадает), кэш Gradle — cache mount, который живёт между сборками,
+  результат — `--output`. Так раннеру не нужны bind mount'ы.
+- **Раннер.** Нужен Gitea Actions runner с меткой `ubuntu-latest`, видящий этот репозиторий (на уровне репозитория,
+  организации `StenFreddSoft` или всего сервера) и с доступом к Docker.
+- **Секреты** (*Settings → Actions → Secrets*):
+  - `ANDROID_KEYSTORE_BASE64` — `base64 -w0 <keystore>`;
+  - `ANDROID_KEYSTORE_PASSWORD` — его пароль (у PKCS12 он же пароль ключа);
+  - `ANDROID_KEY_ALIAS` — alias ключа, если не `sleepyowl`;
+  - `RELEASE_TOKEN` — только если автоматический токен Actions не может создавать релизы: токен с `write:repository`.
+
+  Без ключа джоба падает: APK на ключе, придуманном в контейнере, не встанет поверх ни одной установленной версии.
+  Ключ должен быть один и тот же навсегда — APK на другом ключе ставится только после удаления приложения (с его
+  настройками и входом). Свой ключ: `keytool -genkeypair -keystore sleepyowl.jks -alias sleepyowl -keyalg RSA
+  -keysize 4096 -validity 36500`, хранить вне репозитория и с резервной копией.
+- **Переменные** (*Settings → Actions → Variables*, необязательные): `RELEASES_KEEP` (10) — сколько релизов остаётся
+  на странице (старые удаляются вместе с файлами, теги остаются); `BUILD_CACHE_KEEP` (`10GB`) — потолок кэша
+  сборки Docker на раннере.
+
+Локально то же самое (команды — в шапке `tools/ci/release.Dockerfile`):
+
+```sh
+docker build -t sleepyowl-ci tools/ci
+docker build --no-cache -f tools/ci/release.Dockerfile --secret id=keystore,src=<keystore> \
+  --secret id=keystore_password,src=<файл с паролем> --secret id=key_alias,src=<файл с alias> -o out .
+```
 
 ## Личные настройки инструментов: `local/`
 

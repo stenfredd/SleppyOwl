@@ -4,6 +4,20 @@ plugins {
     alias(libs.plugins.androidx.baselineprofile)
 }
 
+// Версия из gradle.properties или `-Psleepyowl.versionName=…` (CI поднимает patch). versionCode следует за ней:
+// 1.2.3 → 1_002_003, так что более новая версия всегда ставится поверх старой.
+val appVersion = providers.gradleProperty("sleepyowl.versionName").get()
+val appVersionCode = appVersion.split('.').mapNotNull(String::toIntOrNull).let { parts ->
+    require(parts.size == 3 && parts[1] < 1000 && parts[2] < 1000) { "sleepyowl.versionName must be major.minor.patch (minor, patch < 1000): $appVersion" }
+    parts[0] * 1_000_000 + parts[1] * 1_000 + parts[2]
+}
+
+// Ключ подписи release вне репозитория: ANDROID_KEYSTORE (+ пароль, alias). Без него — debug-ключ этой машины.
+val releaseKeystore = providers.environmentVariable("ANDROID_KEYSTORE").orNull?.let(::file)?.also {
+    require(it.isFile) { "ANDROID_KEYSTORE is not a file: $it" }
+}
+val releaseStorePassword = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD").orNull.orEmpty()
+
 android {
     namespace = "ru.stenfredd.sleepyowl"
     compileSdk = 37
@@ -12,19 +26,31 @@ android {
         applicationId = "ru.stenfredd.sleepyowl"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = appVersionCode
+        versionName = appVersion
         ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }
+    }
+
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = releaseKeystore
+                storePassword = releaseStorePassword
+                keyAlias = providers.environmentVariable("ANDROID_KEY_ALIAS").orNull?.takeIf { it.isNotEmpty() } ?: "sleepyowl"
+                // У PKCS12 (по умолчанию в keytool) один пароль на хранилище и ключ.
+                keyPassword = providers.environmentVariable("ANDROID_KEY_PASSWORD").orNull?.takeIf { it.isNotEmpty() } ?: releaseStorePassword
+            }
+        }
     }
 
     buildTypes {
         release {
             // Скорость интерфейса проверяем только на этой сборке: R8 + baseline profile.
-            // Пока своего ключа нет, подписываем debug-ключом, чтобы ставилась на ТВ.
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("debug")
+            // Без ANDROID_KEYSTORE — debug-ключом, чтобы локальная сборка ставилась на ТВ.
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
 

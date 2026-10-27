@@ -13,8 +13,8 @@ plugins {
     alias(libs.plugins.compose.multiplatform)
 }
 
-/** The desktop app's version: the About screen, the log, the .deb. */
-val appVersion = "0.1.0"
+/** The desktop app's version (gradle.properties, or `-Psleepyowl.versionName=…` from CI): the About screen, the log, the .deb. */
+val appVersion = providers.gradleProperty("sleepyowl.versionName").get()
 
 kotlin { jvmToolchain(21) }
 

@@ -372,7 +372,7 @@ sudo apt remove sleepyowl                   # ~/.config/sleepyowl остаётс
 
 - **.deb собирается своей задачей** (`PackageDeb` в `desktop/build.gradle.kts`, через `dpkg-deb`), а не `packageDeb` jpackage: его пакет не умеет зависеть от `libmpv2` — libmpv загружается через JNA, и зависимость сама не находится. Свой пакет даёт ещё короткое имя в `/usr/bin` и меню без лишних скриптов.
 - **libmpv — системная** `libmpv2 (>= 0.37)`: на проверенных файлах 0.37 не хуже 0.41 (§6), своя libmpv не нужна. Остальные зависимости — то, что `dpkg-shlibdeps` нашёл у библиотек JRE, Skiko и JNA (имена Mint 22 / Ubuntu 24.04: `libc6 (>= 2.34)`, `libstdc++6`, `libfontconfig1`, `libx11-6`, `libxext6`, `libxi6`, `libxrender1`, `libxtst6`, `libasound2t64 | libasound2`), плюс то, что грузится через JNA: `libegl1`, `libopengl0`, `libgl1`.
-- **Версия пакета** — `0.1.0-ГГГГММДДЧЧММ` (время сборки): `apt install` любой новой сборки идёт как обновление. Номер версии приложения — одно место, `appVersion` в `desktop/build.gradle.kts`; `BuildInfo.VERSION` генерируется из него.
+- **Версия пакета** — `0.1.0-ГГГГММДДЧЧММ` (время сборки): `apt install` любой новой сборки идёт как обновление. Номер версии — `sleepyowl.versionName` в `gradle.properties`, общий с ТВ (CI поднимает его на релизе); `BuildInfo.VERSION` генерируется из него.
 - **Модули JRE:** `suggestRuntimeModules` дал `java.instrument`, `jdk.security.auth` (dbus-java), `jdk.unsupported`. Добавлены два, которых jdeps не видит: `jdk.crypto.ec` (TLS к публичному адресу сервера по https) и `jdk.localedata` — без него `Locale.getDisplayLanguage(ru)` даёт названия языков дорожек по-английски.
 - **Права файлов в пакете** выставляются явно (755/644): при `umask 002` иначе получается групповая запись.
 

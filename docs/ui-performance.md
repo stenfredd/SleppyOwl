@@ -43,7 +43,7 @@
 
 ### 1.2 Правила замеров
 
-- **Только release**: R8 (минификация и оптимизация, без обфускации — проект open source, а стеки и теги логов остаются читаемыми), подпись debug-ключом, `profileinstaller`.
+- **Только release**: R8 (минификация и оптимизация, без обфускации — проект open source, а стеки и теги логов остаются читаемыми), `profileinstaller`.
 - После установки — сразу компиляция по baseline profile:
   ```
   adb shell am broadcast -a androidx.profileinstaller.action.INSTALL_PROFILE <pkg>/androidx.profileinstaller.ProfileInstallReceiver

@@ -1,0 +1,181 @@
+# CI — on push to master: the TV's APK and the desktop's .deb, built in Docker, go onto the repo's Releases page as
+# tag v<versionName> (docs/development.md, «CI»).
+#
+# A push that changed the apps since the last release (docs, tools, tests and the baseline profile generator aside —
+# they never reach the APK or the .deb) builds both one patch up (v0.1.1 → 0.1.2). A sleepyowl.versionName raised by
+# hand in gradle.properties past the last release (0.2.0) is taken as is; with no release yet, that one goes out
+# first. Any other push stops in a few seconds.
+#
+# Secrets (Settings → Actions → Secrets):
+#   ANDROID_KEYSTORE_BASE64    base64 of the keystore that signs the APK
+#   ANDROID_KEYSTORE_PASSWORD  its password (also the key's: PKCS12 has one)
+#   ANDROID_KEY_ALIAS          the key's alias; «sleepyowl» if not set
+#   RELEASE_TOKEN              optional: a token with write:repository, if the automatic one may not create releases
+# Without the keystore the job fails: an APK on a key made up in the container installs over nothing.
+#
+# Actions variables, all with defaults: RELEASES_KEEP (10) — how many releases stay on the page (older ones go with
+# their files, their tags stay); BUILD_CACHE_KEEP (10GB) — the cap of the runner's build cache.
+
+name: release
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
+      TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+      # RUN --mount and --output need BuildKit; newer CLIs use it anyway.
+      DOCKER_BUILDKIT: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # The whole history with its tags: the last release and what changed since.
+          fetch-depth: 0
+
+      - name: Version, and whether it is out already
+        id: version
+        run: |
+          base=$(sed -n 's/^sleepyowl\.versionName=//p' gradle.properties)
+          # The last release: Gitea tags its commit v<versionName> when it goes out.
+          last=$(git tag -l 'v*' | sed 's/^v//' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)
+          if [ -z "$last" ]; then
+            name=$base
+          elif [ "$base" != "$last" ] && [ "$(printf '%s\n%s\n' "$last" "$base" | sort -V | tail -n 1)" = "$base" ]; then
+            # Raised by hand past the last release.
+            name=$base
+          # What never reaches the APK or the .deb makes no release on its own.
+          elif git diff --quiet "v$last" HEAD -- . ':(exclude)docs' ':(exclude)tools' ':(exclude).gitea' \
+              ':(exclude)baselineprofile' ':(exclude,glob)**/src/test/**' ':(exclude,glob)**/*.md' \
+              ':(exclude).gitignore' ':(exclude).dockerignore'; then
+            echo "Nothing in the apps changed since v$last (docs, tools and tests aside): no new release."
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          else
+            name=$(printf '%s' "$last" | awk -F . '{ printf "%d.%d.%d", $1, $2, $3 + 1 }')
+          fi
+          tag="v$name"
+          echo "Next release: $tag (last: ${last:-none}, gradle.properties: $base)"
+          { echo "name=$name"; echo "tag=$tag"; } >> "$GITHUB_OUTPUT"
+          # Without a token the private repo answers 404 to everything, which would read as "not released" and build
+          # for nothing on every push.
+          [ -n "$TOKEN" ] || { echo "No token for the releases API (RELEASE_TOKEN or the automatic one)." >&2; exit 1; }
+          status=$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: token $TOKEN" "$API/releases/tags/$tag")
+          if [ "$status" = 200 ]; then
+            echo "$tag is released already: nothing to build."
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          elif [ "$status" != 404 ]; then
+            echo "The releases API answered $status." >&2
+            exit 1
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build the APK and the .deb
+        if: steps.version.outputs.build == 'true'
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          NAME: ${{ steps.version.outputs.name }}
+        run: |
+          if [ -z "$KEYSTORE" ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 is not set: no release without the signing key (docs/development.md, «CI»)."
+            exit 1
+          fi
+          keys=$(mktemp -d)
+          trap 'rm -rf "$keys"' EXIT
+          printf '%s' "$KEYSTORE" | base64 -d > "$keys/release.jks"
+          printf '%s' "$KEYSTORE_PASSWORD" > "$keys/password"
+          printf '%s' "$KEY_ALIAS" > "$keys/alias"
+          docker build --label ru.stenfredd.ci=sleepyowl-ci -t sleepyowl-ci tools/ci
+          # The previous toolchain image, when its Dockerfile changed.
+          docker image prune -f --filter label=ru.stenfredd.ci=sleepyowl-ci
+          # --no-cache: secrets are not part of the layer cache key, so a cached layer could hand back an APK signed
+          # with whatever key built it first. Gradle's cache mount stays.
+          docker build --no-cache -f tools/ci/release.Dockerfile \
+            --secret id=keystore,src="$keys/release.jks" \
+            --secret id=keystore_password,src="$keys/password" \
+            --secret id=key_alias,src="$keys/alias" \
+            --build-arg VERSION_NAME="$NAME" \
+            -o out .
+          ls -l out
+          cat out/version.txt
+
+      - name: Publish on the Releases page
+        if: steps.version.outputs.build == 'true'
+        env:
+          NAME: ${{ steps.version.outputs.name }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -eu
+          auth="Authorization: token $TOKEN"
+          # What the APK came out as; versionCode follows versionName (app/build.gradle.kts).
+          read -r built CODE < out/version.txt
+          [ "$built" = "$NAME" ] || { echo "The APK is $built, not $NAME." >&2; exit 1; }
+          deb=$(ls out/sleepyowl_*_amd64.deb)
+          apk_sha=$(sha256sum out/sleepyowl.apk | cut -d ' ' -f 1)
+          deb_sha=$(sha256sum "$deb" | cut -d ' ' -f 1)
+          cert=$(cat out/cert-sha256.txt)
+          body=$(printf 'Коммит %s.\\n\\n**Android TV:** `sleepyowl-%s.apk`, versionCode %s.\\nSHA-256: `%s`\\nСертификат подписи, SHA-256: `%s`\\n\\n**Linux:** `%s` — `sudo apt install ./%s` (нужен libmpv2).\\nSHA-256: `%s`' \
+            "${{ github.sha }}" "$NAME" "$CODE" "$apk_sha" "$cert" "${deb#out/}" "${deb#out/}" "$deb_sha")
+          release=$(curl -sS --fail-with-body -X POST -H "$auth" -H 'Content-Type: application/json' \
+            -d "{\"tag_name\":\"$TAG\",\"target_commitish\":\"${{ github.sha }}\",\"name\":\"SleepyOwl $NAME\",\"body\":\"$body\",\"draft\":true}" \
+            "$API/releases")
+          id=$(printf '%s' "$release" | grep -o '"id":[0-9]*' | head -n 1 | cut -d : -f 2)
+          # A draft until both files are in: a failed upload leaves no half release behind, and the next push tries again.
+          trap 'curl -sS -X DELETE -H "$auth" "$API/releases/$id" > /dev/null' EXIT
+          curl -sS --fail-with-body -H "$auth" -F "attachment=@out/sleepyowl.apk" \
+            "$API/releases/$id/assets?name=sleepyowl-$NAME.apk" > /dev/null
+          curl -sS --fail-with-body -H "$auth" -F "attachment=@$deb" \
+            "$API/releases/$id/assets?name=${deb#out/}" > /dev/null
+          curl -sS --fail-with-body -X PATCH -H "$auth" -H 'Content-Type: application/json' \
+            -d '{"draft":false}' "$API/releases/$id" > /dev/null
+          trap - EXIT
+          echo "Released $TAG: ${{ github.server_url }}/${{ github.repository }}/releases/tag/$TAG"
+
+      - name: Keep the newest releases only
+        if: steps.version.outputs.build == 'true'
+        # Housekeeping: the release above is out whatever happens here.
+        continue-on-error: true
+        env:
+          KEEP: ${{ vars.RELEASES_KEEP || '10' }}
+        run: |
+          set -eu
+          auth="Authorization: token $TOKEN"
+          list=$(mktemp)
+          page=1
+          while [ "$page" -le 100 ]; do
+            resp=$(curl -sS --fail-with-body -H "$auth" "$API/releases?limit=50&page=$page")
+            [ "$resp" != "[]" ] || break
+            # "<version> <id>" of each release (Gitea writes id, then tag_name).
+            printf '%s' "$resp" | grep -o '"id":[0-9]*,"tag_name":"v[0-9.]*"' \
+              | sed 's/"id":\([0-9]*\),"tag_name":"v\(.*\)"/\2 \1/' >> "$list" || true
+            page=$((page + 1))
+          done
+          echo "Releases: $(wc -l < "$list"), keeping the newest $KEEP."
+          sort -rV "$list" | tail -n +"$((KEEP + 1))" | while read -r version id; do
+            curl -sS --fail-with-body -X DELETE -H "$auth" "$API/releases/$id" > /dev/null
+            echo "Deleted the release v$version (its tag stays)."
+          done
+
+      # Docker's build cache stays for the next build — the toolchain image's layers, Gradle's cache mount — but no
+      # bigger than BUILD_CACHE_KEEP: the least recently used goes first. It is the runner daemon's cache, shared by
+      # everything that builds there.
+      - name: Cap the build cache
+        if: always() && steps.version.outputs.build == 'true'
+        continue-on-error: true
+        env:
+          KEEP: ${{ vars.BUILD_CACHE_KEEP || '10GB' }}
+        run: |
+          # --max-used-space is the cap (Docker 28+, API 1.48); older daemons know --keep-storage.
+          if printf '1.48\n%s\n' "$(docker version --format '{{.Server.APIVersion}}')" | sort -V -C; then
+            docker builder prune -af --max-used-space "$KEEP"
+          else
+            docker builder prune -af --keep-storage "$KEEP"
+          fi
+          docker system df

@@ -1,0 +1,10 @@
+# The build context of tools/ci/release.Dockerfile: the sources, not what builds, local runs and personal files leave.
+.git/
+**/build/
+.gradle/
+.kotlin/
+.idea/
+local/
+local.properties
+**/__pycache__/
+*.apk

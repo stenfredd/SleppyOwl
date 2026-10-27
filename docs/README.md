@@ -1,4 +1,6 @@
-# SleepyOwl
+# SleepyOwl: документация
+
+О проекте для пользователей, скриншоты и установка — в [README](../README.md). Здесь — техническая сторона.
 
 SleepyOwl — open-source клиент Jellyfin на Kotlin: сначала для Android TV, теперь есть и версия для Linux (ПК).
 Лицензия GPL-3.0-or-later. Название и логотип свои, без бренда Jellyfin. Пакет `ru.stenfredd.sleepyowl`

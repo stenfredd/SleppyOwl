@@ -118,13 +118,14 @@ jobs:
           printf '%s' "$KEYSTORE" | base64 -d > "$keys/keystore"
           printf '%s' "$KEYSTORE_PASSWORD" > "$keys/keystore_password"
           printf '%s' "$KEY_ALIAS" > "$keys/key_alias"
+          # On a cache miss neither exists yet, and docker save makes no directories.
+          mkdir -p "$(dirname "$CI_IMAGE_TAR")" "$GRADLE_CACHE"
           if [ -f "$CI_IMAGE_TAR" ]; then
             docker load -i "$CI_IMAGE_TAR"
           else
             docker build -t sleepyowl-ci tools/ci
             docker save -o "$CI_IMAGE_TAR" sleepyowl-ci
           fi
-          mkdir -p "$GRADLE_CACHE"
           # The key goes where release.sh looks for BuildKit's secrets.
           docker run --rm -v "$PWD:/work" -w /work -v "$GRADLE_CACHE:/gradle" -v "$keys:/run/secrets:ro" \
             -e VERSION_NAME="$NAME" sleepyowl-ci sh tools/ci/release.sh /work/out

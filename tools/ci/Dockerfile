@@ -1,7 +1,8 @@
-# Build toolchain of CI (.gitea/workflows/release.yaml, docs/development.md «CI»): JDK 21 (Gradle, the desktop app's
-# toolchain and its jpackage) and the Android SDK the TV app compiles against. dpkg-deb for the .deb comes with the base
-# image. Gradle itself comes through the wrapper and, like every dependency, lands in /gradle — a BuildKit cache mount of
-# release.Dockerfile. Bump the platform together with compileSdk in app/build.gradle.kts.
+# Build toolchain of CI (.gitea/workflows/release.yaml, .github/workflows/release.yml, docs/development.md «CI»):
+# JDK 21 (Gradle, the desktop app's toolchain and its jpackage) and the Android SDK the TV app compiles against.
+# dpkg-deb for the .deb comes with the base image. Gradle itself comes through the wrapper and, like every dependency,
+# lands in /gradle — a BuildKit cache mount of release.Dockerfile (on GitHub, a bind mount restored from the Actions
+# cache). Bump the platform together with compileSdk in app/build.gradle.kts.
 FROM eclipse-temurin:21-jdk-noble
 
 ARG CMDLINE_TOOLS=16111833

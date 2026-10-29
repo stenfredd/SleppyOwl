@@ -50,7 +50,7 @@ jobs:
             name=$base
           # What never reaches the APK or the .deb makes no release on its own.
           elif git diff --quiet "v$last" HEAD -- . ':(exclude)docs' ':(exclude)tools' ':(exclude).gitea' \
-              ':(exclude)baselineprofile' ':(exclude,glob)**/src/test/**' ':(exclude,glob)**/*.md' \
+              ':(exclude).github' ':(exclude)baselineprofile' ':(exclude,glob)**/src/test/**' ':(exclude,glob)**/*.md' \
               ':(exclude).gitignore' ':(exclude).dockerignore'; then
             echo "Nothing in the apps changed since v$last (docs, tools and tests aside): no new release."
             echo "build=false" >> "$GITHUB_OUTPUT"

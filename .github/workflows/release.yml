@@ -1,0 +1,180 @@
+# CI on GitHub — the twin of .gitea/workflows/release.yaml: on push to master the TV's APK and the desktop's .deb, built
+# in the same Docker image by the same tools/ci/release.sh, go onto the repo's Releases page as tag v<versionName>
+# (docs/development.md, «CI»). Versioning is the same: one patch up from the last release, or a sleepyowl.versionName
+# raised by hand in gradle.properties; a push that left the apps alone stops in a few seconds.
+#
+# Unlike Gitea's act_runner, a GitHub-hosted runner is a whole VM with its own Docker, so the build runs in a plain
+# `docker run` with bind mounts rather than inside BuildKit. The VM is new on every run: the toolchain image and Gradle's
+# home (dependencies, the wrapper, the build cache) come back from the Actions cache instead.
+#
+# Secrets (Settings → Secrets and variables → Actions):
+#   ANDROID_KEYSTORE_BASE64    base64 of the keystore that signs the APK
+#   ANDROID_KEYSTORE_PASSWORD  its password (also the key's: PKCS12 has one)
+#   ANDROID_KEY_ALIAS          the key's alias; «sleepyowl» if not set
+# Without the keystore the job fails: an APK on a key made up in the container installs over nothing.
+#
+# Variables, with a default: RELEASES_KEEP (10) — how many releases stay on the page (older ones go with their files,
+# their tags stay).
+
+name: release
+
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: write
+
+# Two pushes in a row would both go for the same tag: the second waits.
+concurrency:
+  group: release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      GRADLE_CACHE: /home/runner/.cache/sleepyowl-gradle
+      CI_IMAGE_TAR: /home/runner/.cache/sleepyowl-ci.tar
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          # The whole history with its tags: the last release and what changed since.
+          fetch-depth: 0
+
+      - name: Version, and whether it is out already
+        id: version
+        run: |
+          base=$(sed -n 's/^sleepyowl\.versionName=//p' gradle.properties)
+          # The last release: GitHub tags its commit v<versionName> when it goes out.
+          last=$(git tag -l 'v*' | sed 's/^v//' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)
+          if [ -z "$last" ]; then
+            name=$base
+          elif [ "$base" != "$last" ] && [ "$(printf '%s\n%s\n' "$last" "$base" | sort -V | tail -n 1)" = "$base" ]; then
+            # Raised by hand past the last release.
+            name=$base
+          # What never reaches the APK or the .deb makes no release on its own.
+          elif git diff --quiet "v$last" HEAD -- . ':(exclude)docs' ':(exclude)tools' ':(exclude).gitea' \
+              ':(exclude).github' ':(exclude)baselineprofile' ':(exclude,glob)**/src/test/**' ':(exclude,glob)**/*.md' \
+              ':(exclude).gitignore' ':(exclude).dockerignore'; then
+            echo "Nothing in the apps changed since v$last (docs, tools and tests aside): no new release."
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          else
+            name=$(printf '%s' "$last" | awk -F . '{ printf "%d.%d.%d", $1, $2, $3 + 1 }')
+          fi
+          tag="v$name"
+          echo "Next release: $tag (last: ${last:-none}, gradle.properties: $base)"
+          { echo "name=$name"; echo "tag=$tag"; } >> "$GITHUB_OUTPUT"
+          status=$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $GH_TOKEN" \
+            "${{ github.api_url }}/repos/$GH_REPO/releases/tags/$tag")
+          if [ "$status" = 200 ]; then
+            echo "$tag is released already: nothing to build."
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          elif [ "$status" != 404 ]; then
+            echo "The releases API answered $status." >&2
+            exit 1
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The toolchain image (JDK, Android SDK) as `docker save` left it, until tools/ci/Dockerfile changes.
+      - name: Toolchain image from the cache
+        if: steps.version.outputs.build == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CI_IMAGE_TAR }}
+          key: ci-image-${{ hashFiles('tools/ci/Dockerfile') }}
+
+      # Gradle's home: saved after every release under a new key, the newest one with the same build files coming back
+      # next time — its build cache (org.gradle.caching) is what spares recompiling the modules a push left alone. The
+      # Actions cache drops the least recently used past 10 GB a repo.
+      - name: Gradle's home from the cache
+        if: steps.version.outputs.build == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.GRADLE_CACHE }}
+          key: gradle-${{ hashFiles('**/*.gradle.kts', 'gradle/libs.versions.toml', 'gradle/wrapper/gradle-wrapper.properties') }}-${{ github.sha }}
+          restore-keys: |
+            gradle-${{ hashFiles('**/*.gradle.kts', 'gradle/libs.versions.toml', 'gradle/wrapper/gradle-wrapper.properties') }}-
+            gradle-
+
+      - name: Build the APK and the .deb
+        if: steps.version.outputs.build == 'true'
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          NAME: ${{ steps.version.outputs.name }}
+        run: |
+          if [ -z "$KEYSTORE" ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 is not set: no release without the signing key (docs/development.md, «CI»)."
+            exit 1
+          fi
+          keys=$(mktemp -d)
+          trap 'rm -rf "$keys"' EXIT
+          printf '%s' "$KEYSTORE" | base64 -d > "$keys/keystore"
+          printf '%s' "$KEYSTORE_PASSWORD" > "$keys/keystore_password"
+          printf '%s' "$KEY_ALIAS" > "$keys/key_alias"
+          if [ -f "$CI_IMAGE_TAR" ]; then
+            docker load -i "$CI_IMAGE_TAR"
+          else
+            docker build -t sleepyowl-ci tools/ci
+            docker save -o "$CI_IMAGE_TAR" sleepyowl-ci
+          fi
+          mkdir -p "$GRADLE_CACHE"
+          # The key goes where release.sh looks for BuildKit's secrets.
+          docker run --rm -v "$PWD:/work" -w /work -v "$GRADLE_CACHE:/gradle" -v "$keys:/run/secrets:ro" \
+            -e VERSION_NAME="$NAME" sleepyowl-ci sh tools/ci/release.sh /work/out
+          # The container wrote as root; the cache's post step saves as the runner. Lock files and daemon logs stay out.
+          sudo chown -R "$(id -u):$(id -g)" "$GRADLE_CACHE" out
+          find "$GRADLE_CACHE/caches" -name '*.lock' -delete
+          rm -rf "$GRADLE_CACHE/daemon"
+          ls -l out
+          cat out/version.txt
+
+      - name: Publish on the Releases page
+        if: steps.version.outputs.build == 'true'
+        env:
+          NAME: ${{ steps.version.outputs.name }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -eu
+          # What the APK came out as; versionCode follows versionName (app/build.gradle.kts).
+          read -r built CODE < out/version.txt
+          [ "$built" = "$NAME" ] || { echo "The APK is $built, not $NAME." >&2; exit 1; }
+          # A release asset is named after its file.
+          apk=out/sleepyowl-$NAME.apk
+          mv out/sleepyowl.apk "$apk"
+          deb=$(ls out/sleepyowl_*_amd64.deb)
+          apk_sha=$(sha256sum "$apk" | cut -d ' ' -f 1)
+          deb_sha=$(sha256sum "$deb" | cut -d ' ' -f 1)
+          cert=$(cat out/cert-sha256.txt)
+          printf 'Коммит %s.\n\n**Android TV:** `%s`, versionCode %s.\nSHA-256: `%s`\nСертификат подписи, SHA-256: `%s`\n\n**Linux:** `%s` — `sudo apt install ./%s` (нужен libmpv2).\nSHA-256: `%s`\n' \
+            "${{ github.sha }}" "${apk#out/}" "$CODE" "$apk_sha" "$cert" "${deb#out/}" "${deb#out/}" "$deb_sha" > out/notes.md
+          # A draft until both files are in: a failed upload leaves no half release behind, and the next push tries
+          # again. GitHub makes the tag only when the draft goes public.
+          trap 'gh release delete "$TAG" --yes > /dev/null 2>&1 || true' EXIT
+          gh release create "$TAG" "$apk" "$deb" --draft --target "${{ github.sha }}" \
+            --title "SleepyOwl $NAME" --notes-file out/notes.md > /dev/null
+          gh release edit "$TAG" --draft=false > /dev/null
+          trap - EXIT
+          echo "Released $TAG: ${{ github.server_url }}/$GH_REPO/releases/tag/$TAG"
+
+      - name: Keep the newest releases only
+        if: steps.version.outputs.build == 'true'
+        # Housekeeping: the release above is out whatever happens here.
+        continue-on-error: true
+        env:
+          KEEP: ${{ vars.RELEASES_KEEP || '10' }}
+        run: |
+          set -eu
+          list=$(gh release list --limit 1000 --exclude-drafts --json tagName --jq '.[].tagName' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed 's/^v//' || true)
+          echo "Releases: $(printf '%s' "$list" | grep -c . || true), keeping the newest $KEEP."
+          printf '%s\n' "$list" | grep . | sort -rV | tail -n +"$((KEEP + 1))" | while read -r version; do
+            gh release delete "v$version" --yes
+            echo "Deleted the release v$version (its tag stays)."
+          done

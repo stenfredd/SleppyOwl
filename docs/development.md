@@ -19,34 +19,38 @@ Baseline profile лежит в `app/src/release/generated/baselineProfiles/` и 
 `versionCode` APK следует за ней (`1.2.3` → `1002003`). Release-APK подписывается ключом из `ANDROID_KEYSTORE`
 (+ `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, по умолчанию `sleepyowl`), без него — debug-ключом машины.
 
-## CI: релизы в Gitea
+## CI: релизы в Gitea и GitHub
 
-`.gitea/workflows/release.yaml`: на пуш в `master` APK и .deb собираются в Docker и выкладываются на страницу
+`.gitea/workflows/release.yaml` (Gitea) и `.github/workflows/release.yml` (GitHub) — одно и то же: на пуш в `master` APK и .deb собираются в Docker и выкладываются на страницу
 Releases репозитория как тег `v<версия>` (APK `sleepyowl-<версия>.apk`, `.deb` как его назвал `packageDeb`).
 
 - **Версия.** Каждый релиз — patch на единицу выше прошлого тега (`v0.1.1` → `0.1.2`). Чтобы начать новую minor или
   major, поднять `sleepyowl.versionName` в `gradle.properties` выше последнего релиза — следующий релиз возьмёт её.
   Первый релиз — версия из `gradle.properties`. Пуш, который не менял приложения (только `docs/`, `tools/`,
-  `.gitea/`, `baselineprofile/`, тесты, `*.md`), релиза не делает.
+  `.gitea/`, `.github/`, `baselineprofile/`, тесты, `*.md`), релиза не делает.
 - **Сборка.** `tools/ci/Dockerfile` — образ с JDK 21 и Android SDK; `tools/ci/release.Dockerfile` собирает в нём
   `:app:assembleRelease :desktop:packageDeb` (`tools/ci/release.sh`) целиком внутри BuildKit: исходники — контекст
   сборки, ключ — BuildKit-секреты (в слои не попадает), кэш Gradle — cache mount, который живёт между сборками,
-  результат — `--output`. Так раннеру не нужны bind mount'ы.
-- **Раннер.** Нужен Gitea Actions runner с меткой `ubuntu-latest`, видящий этот репозиторий (на уровне репозитория,
-  организации `StenFreddSoft` или всего сервера) и с доступом к Docker.
-- **Секреты** (*Settings → Actions → Secrets*):
+  результат — `--output`. Так раннеру не нужны bind mount'ы. На GitHub раннер — целая одноразовая VM со своим Docker:
+  тот же образ и тот же `release.sh` запускаются через `docker run` с bind mount'ами, а образ и домашняя папка Gradle
+  (зависимости, wrapper, build cache) между запусками живут в кэше Actions.
+- **Раннер.** В Gitea нужен Gitea Actions runner с меткой `ubuntu-latest`, видящий этот репозиторий (на уровне
+  репозитория, организации `StenFreddSoft` или всего сервера) и с доступом к Docker. На GitHub — его стандартный
+  `ubuntu-latest`, ничего настраивать не нужно. Gitea `.github/` не читает, пока есть `.gitea/workflows/`.
+- **Секреты** (Gitea: *Settings → Actions → Secrets*; GitHub: *Settings → Secrets and variables → Actions*):
   - `ANDROID_KEYSTORE_BASE64` — `base64 -w0 <keystore>`;
   - `ANDROID_KEYSTORE_PASSWORD` — его пароль (у PKCS12 он же пароль ключа);
   - `ANDROID_KEY_ALIAS` — alias ключа, если не `sleepyowl`;
-  - `RELEASE_TOKEN` — только если автоматический токен Actions не может создавать релизы: токен с `write:repository`.
+  - `RELEASE_TOKEN` — только в Gitea и только если автоматический токен Actions не может создавать релизы: токен с
+    `write:repository`. На GitHub хватает автоматического (workflow сам просит `contents: write`).
 
   Без ключа джоба падает: APK на ключе, придуманном в контейнере, не встанет поверх ни одной установленной версии.
   Ключ должен быть один и тот же навсегда — APK на другом ключе ставится только после удаления приложения (с его
   настройками и входом). Свой ключ: `keytool -genkeypair -keystore sleepyowl.jks -alias sleepyowl -keyalg RSA
   -keysize 4096 -validity 36500`, хранить вне репозитория и с резервной копией.
-- **Переменные** (*Settings → Actions → Variables*, необязательные): `RELEASES_KEEP` (10) — сколько релизов остаётся
-  на странице (старые удаляются вместе с файлами, теги остаются); `BUILD_CACHE_KEEP` (`10GB`) — потолок кэша
-  сборки Docker на раннере.
+- **Переменные** (необязательные, рядом с секретами): `RELEASES_KEEP` (10) — сколько релизов остаётся на странице
+  (старые удаляются вместе с файлами, теги остаются); только в Gitea — `BUILD_CACHE_KEEP` (`10GB`), потолок кэша
+  сборки Docker на раннере. На GitHub кэш Actions сам держится в 10 ГБ на репозиторий.
 
 Локально то же самое (команды — в шапке `tools/ci/release.Dockerfile`):
 
